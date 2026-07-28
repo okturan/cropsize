@@ -1,0 +1,6 @@
+# Optional: enables the SAM 2 detector. Weights are pulled from Hugging Face on first use
+# (~320 MB for base_plus, ~150 MB for tiny) — no checkpoint to download by hand.
+torch>=2.3.1
+torchvision>=0.18
+sam2>=1.1
+huggingface_hub>=0.23

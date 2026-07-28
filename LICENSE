@@ -1,0 +1,14 @@
+Copyright (c) 2026 Okan Erturan. All rights reserved.
+
+This software is not licensed for redistribution, modification, or commercial use.
+No permission is granted to copy, publish, sublicense, or distribute this work or
+derivative works, in whole or in part, without prior written consent from the copyright
+holder.
+
+Viewing the source for evaluation is permitted.
+
+Note on dependencies: this project links PyMuPDF, which is offered under the GNU AGPL-3.0
+or a commercial licence from Artifex. Distributing or hosting this software without an
+Artifex commercial licence would trigger AGPL obligations. Replacing PyMuPDF with
+pypdfium2 (Apache-2.0/BSD) removes that constraint. Segment Anything 2 and OpenCV are
+Apache-2.0 and impose no such condition.

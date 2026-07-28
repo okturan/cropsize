@@ -1,0 +1,32 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.11", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+      # Deliberately without requirements-sam.txt: the tests exercise the classic-CV path
+      # so CI never pulls ~1 GB of torch or any model weights.
+      - run: pip install -r requirements.txt pytest
+      - run: pytest tests/ -q
+      - name: app imports and routes resolve
+        run: |
+          python -c "
+          import app
+          paths = {r.path for r in app.app.routes}
+          for p in ('/api/upload','/api/detect','/api/objects','/api/export'):
+              assert p in paths, p
+          print('routes ok:', len(paths))
+          "

@@ -1,0 +1,238 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>scanfit — crop scans onto real-size pages</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<header>
+  <h1>scanfit</h1>
+  <p class="tag">Crop a scan, straighten it, print it at true physical size.</p>
+  <span id="srcBadge" class="badge" hidden></span>
+  <span id="samBadge" class="badge" title="segmentation engine">…</span>
+</header>
+
+<main>
+  <!-- ── source / editor ─────────────────────────────────────────────── -->
+  <section id="stage">
+    <div id="drop" class="drop">
+      <p><strong>Drop a PDF or image here</strong></p>
+      <p class="muted">or <label class="link">browse<input type="file" id="file" accept=".pdf,.png,.jpg,.jpeg,.tif,.tiff,.webp" hidden></label></p>
+      <p class="muted small">Rendered at the scan's own resolution. Nothing leaves your machine.</p>
+    </div>
+
+    <div id="editor" hidden>
+      <div class="viewBar">
+        <span class="tools" role="group" aria-label="tool">
+          <button id="toolCrop" class="tool" aria-pressed="true" title="Crop (C)">⛶</button>
+          <button id="toolSelect" class="tool" aria-pressed="false" title="Select objects (S) — click an item, ⌥-click to exclude">◉</button>
+          <button id="toolPan" class="tool" aria-pressed="false" title="Pan (H, or hold space)">✋</button>
+        </span>
+        <span class="sep"></span>
+        <button id="zoomOut" title="zoom out">−</button>
+        <output id="zoomLevel">fit</output>
+        <button id="zoomIn" title="zoom in">+</button>
+        <button id="zoomFit" class="ghostSm">Fit</button>
+        <button id="zoom100" class="ghostSm">100%</button>
+        <span class="pageStrip" id="pageStrip"></span>
+      </div>
+      <div class="canvasWrap" id="canvasWrap">
+        <canvas id="canvas"></canvas>
+        <div id="spinner" class="spinner" hidden></div>
+      </div>
+      <p class="hint" id="hint"></p>
+    </div>
+  </section>
+
+  <!-- ── output preview ──────────────────────────────────────────────── -->
+  <section id="outPanel" class="card" hidden>
+    <div class="cardHead">
+      <h2>Output preview</h2>
+      <span id="pageLabel" class="chip"></span>
+    </div>
+    <div class="sheetWrap">
+      <img id="sheet" alt="preview of the exported page">
+      <div id="sheetBusy" class="sheetBusy" hidden></div>
+    </div>
+    <dl class="facts">
+      <dt>On the scan</dt><dd id="factMeasured">—</dd>
+      <dt>On the page</dt><dd id="factOutput">—</dd>
+      <dt>Resolution</dt><dd id="factDpi">—</dd>
+    </dl>
+    <p id="sizeWarn" class="warn" hidden></p>
+  </section>
+
+  <!-- ── controls ────────────────────────────────────────────────────── -->
+  <aside id="panel" hidden>
+    <section class="group">
+      <h2><span class="step">1</span> What is on this scan?</h2>
+      <div class="segmented" role="group" aria-label="mode">
+        <button id="modeSingle" class="seg" aria-pressed="true">
+          <span class="segTitle">One document</span>
+          <span class="segSub">→ 1 page out</span>
+        </button>
+        <button id="modeObjects" class="seg" aria-pressed="false">
+          <span class="segTitle">Several items <span id="modeCount" class="segCount"></span></span>
+          <span class="segSub">→ 1 page each</span>
+        </button>
+      </div>
+      <p class="note">These are alternatives, not a sequence. Whichever is selected here is
+        what gets exported — the other one's work is kept but ignored.</p>
+    </section>
+
+    <section class="group">
+      <h2><span class="step">2</span> Find it</h2>
+      <div class="field">
+        <label for="engine">Engine</label>
+        <select id="engine">
+          <option value="auto">Auto (SAM 2)</option>
+          <option value="sam">SAM 2</option>
+          <option value="classic">Classic CV</option>
+        </select>
+      </div>
+      <div id="singleActions">
+        <div class="btnRow">
+          <button id="detect" class="primary">Detect edges</button>
+        </div>
+        <label class="check"><input type="checkbox" id="autoDeskew" checked> measure &amp; correct skew</label>
+      </div>
+      <div id="objectActions" hidden>
+        <div class="btnRow">
+          <button id="findObjects" class="primary">Find all objects</button>
+        </div>
+        <p class="note">Or pick the ◉ tool and click items one by one.</p>
+      </div>
+      <p id="detectNote" class="note"></p>
+    </section>
+
+    <section class="group" id="objGroup" hidden>
+      <div class="cardHead">
+        <h2>Objects</h2>
+        <span id="objCount" class="chip"></span>
+      </div>
+      <ul id="objList" class="objList"></ul>
+      <div class="btnRow">
+        <button id="mergeObjects" disabled title="select two or more rows">Merge selected</button>
+        <button id="clearObjects">Clear all</button>
+      </div>
+      <p class="note">Each keeps its own rotation, so the fine-rotation slider does not apply.
+        ⇄ cycles the alternatives SAM proposed for that item — a passport in a sleeve gives
+        you the sleeve and each page. Tick two rows and Merge to combine them.</p>
+    </section>
+
+    <section class="group" id="straightenGroup">
+      <h2><span class="step">3</span> Straighten</h2>
+      <div class="btnRow">
+        <button id="rotL" title="rotate left">⟲ 90°</button>
+        <button id="rotR" title="rotate right">⟳ 90°</button>
+        <button id="rot180">180°</button>
+      </div>
+      <label class="slider">Fine rotation <output id="skewOut">0.0°</output>
+        <input type="range" id="skew" min="-5" max="5" step="0.1" value="0">
+      </label>
+    </section>
+
+    <section class="group">
+      <h2><span class="step">4</span> How big should it print?</h2>
+      <div class="choices" id="fitChoices">
+        <label class="choice">
+          <input type="radio" name="fit" value="true" checked>
+          <span class="choiceBody">
+            <span class="choiceTitle">Keep real size</span>
+            <span class="choiceSub" id="fitTrueSub">measured from the scan</span>
+          </span>
+        </label>
+        <label class="choice">
+          <input type="radio" name="fit" value="real">
+          <span class="choiceBody">
+            <span class="choiceTitle">Scale to a known size</span>
+            <span class="choiceSub">force an exact width — e.g. a standard ID card</span>
+          </span>
+        </label>
+        <label class="choice">
+          <input type="radio" name="fit" value="fit">
+          <span class="choiceBody">
+            <span class="choiceTitle">Fill the sheet</span>
+            <span class="choiceSub">as large as the margins allow — not to scale</span>
+          </span>
+        </label>
+      </div>
+
+      <div id="presetBox" class="subBox" hidden>
+        <div class="field">
+          <label for="preset">Known size</label>
+          <select id="preset">
+            <option value="125x176">Passport spread — 125 × 176 mm</option>
+            <option value="125x88">Passport page — 125 × 88 mm</option>
+            <option value="85.6x54">ID / bank card — 85.6 × 54 mm</option>
+            <option value="custom">Custom width…</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="targetW">Target width</label>
+          <span class="unit"><input type="number" id="targetW" value="125" min="10" max="400" step="0.1"> mm</span>
+        </div>
+      </div>
+    </section>
+
+    <section class="group">
+      <h2><span class="step">5</span> Sheet</h2>
+      <div class="field">
+        <label for="pageSize">Paper</label>
+        <select id="pageSize">
+          <option value="a4" selected>A4 — 210 × 297 mm</option>
+          <option value="a3">A3 — 297 × 420 mm</option>
+          <option value="a5">A5 — 148 × 210 mm</option>
+          <option value="letter">Letter — 216 × 279 mm</option>
+          <option value="legal">Legal — 216 × 356 mm</option>
+          <option value="auto">No sheet — just the crop</option>
+        </select>
+      </div>
+      <div class="field">
+        <label for="margin">Margin</label>
+        <span class="unit"><input type="number" id="margin" value="8" min="0" max="40" step="1"> mm</span>
+      </div>
+      <label class="check"><input type="checkbox" id="landscape"> landscape</label>
+      <p class="note" id="marginNote"></p>
+    </section>
+
+    <section class="group">
+      <h2><span class="step">6</span> Tone</h2>
+      <label class="slider">Local contrast <output id="claheOut">off</output>
+        <input type="range" id="clahe" min="0" max="3" step="0.1" value="0">
+      </label>
+      <label class="check"><input type="checkbox" id="stretch"> white-point stretch</label>
+      <label class="check" style="margin-top:8px"><input type="checkbox" id="trimOutline" checked>
+        trim to the traced outline</label>
+      <p class="note">A crop is a rectangle, so the squared-off corners pick up whatever sits
+        outside a document's rounded ones. This clears them to white using the boundary the
+        detector actually traced.</p>
+      <p class="note">Off by default — the export is the original scan. Both are luminance
+        only, so hue is preserved and stamp and ink colour stays true.</p>
+    </section>
+
+    <section class="group">
+      <h2><span class="step">7</span> Export</h2>
+      <div class="field">
+        <label for="outDpi">Export at</label>
+        <select id="outDpi">
+          <option value="">Match the scan</option>
+          <option value="150">150 dpi</option>
+          <option value="300">300 dpi</option>
+          <option value="600">600 dpi</option>
+        </select>
+      </div>
+      <div class="btnRow">
+        <button id="exportPdf" class="primary">Download PDF</button>
+        <button id="exportPng">PNG</button>
+      </div>
+      <button id="reset" class="ghost">Start over</button>
+    </section>
+  </aside>
+</main>
+
+<script src="/static/app.js"></script>
+</body>
+</html>
