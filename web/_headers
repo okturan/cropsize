@@ -1,0 +1,8 @@
+# Cloudflare Pages headers.
+# Cross-origin isolation is what lets ONNX Runtime Web use threaded WASM. Without it ORT
+# silently falls back to single-threaded and the encoder takes several times longer.
+/*
+  Cross-Origin-Opener-Policy: same-origin
+  Cross-Origin-Embedder-Policy: require-corp
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: no-referrer

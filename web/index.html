@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>scanfit — crop scans onto real-size pages</title>
+<!-- ONNX Runtime Web from CDN rather than bundled: its threaded WASM binary is 26.8 MB and
+     Cloudflare Pages rejects any file over 25 MiB. Pinned with Subresource Integrity. -->
+<script
+  src="https://cdn.jsdelivr.net/npm/onnxruntime-web@1.27.0/dist/ort.min.js"
+  integrity="sha384-uEaiZh7//Wy463wyKt2IRGCp/U7xzZL3k9Qd5Nm760KK9EkwN2nPN2DSEELB6WgC"
+  crossorigin="anonymous"
+  referrerpolicy="no-referrer"
+></script>
+</head>
+<body>
+  <main id="app">
+    <noscript>scanfit runs entirely in your browser and needs JavaScript.</noscript>
+  </main>
+  <script type="module" src="/src/main.ts"></script>
+</body>
+</html>
