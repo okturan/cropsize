@@ -1,6 +1,6 @@
 /**
  * ONNX Runtime Web is loaded from a CDN <script> tag (see index.html) and reached through
- * the global `ort`. Only the surface scanfit uses is declared.
+ * the global `ort`. Only the surface cropsize uses is declared.
  */
 declare namespace ort {
   class Tensor {

@@ -1,4 +1,4 @@
-"""scanfit — local web app: upload a scan, crop/deskew it, place it on a page, export."""
+"""cropsize — local web app: upload a scan, crop/deskew it, place it on a page, export."""
 from __future__ import annotations
 
 import io
@@ -14,7 +14,7 @@ from pydantic import BaseModel
 
 import pipeline as P
 
-app = FastAPI(title="scanfit")
+app = FastAPI(title="cropsize")
 
 MAX_UPLOAD_BYTES = 60 * 1024 * 1024
 SESSION_TTL_SECONDS = 60 * 60
@@ -360,9 +360,9 @@ def export(req: ExportReq):
     pages = _render(req)
     if req.format == "png":
         return Response(P.to_png(pages[0]), media_type="image/png",
-                        headers={"Content-Disposition": 'attachment; filename="scanfit.png"'})
+                        headers={"Content-Disposition": 'attachment; filename="cropsize.png"'})
     return Response(P.to_pdf(pages, _out_dpi(req)), media_type="application/pdf",
-                    headers={"Content-Disposition": 'attachment; filename="scanfit.pdf"'})
+                    headers={"Content-Disposition": 'attachment; filename="cropsize.pdf"'})
 
 
 @app.get("/api/capabilities")

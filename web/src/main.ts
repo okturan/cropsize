@@ -9,7 +9,7 @@ const app = document.getElementById("app")!;
 const mb = (n: number) => `${(n / 1048576).toFixed(0)} MB`;
 
 app.textContent =
-  `scanfit (browser build, scaffolding). First-visit model download: ` +
+  `cropsize (browser build, scaffolding). First-visit model download: ` +
   `tiny/fp32 ${mb(downloadBytes("tiny", "fp32"))}, tiny/fp16 ${mb(downloadBytes("tiny", "fp16"))}, ` +
   `base-plus/fp16 ${mb(downloadBytes("base-plus", "fp16"))}.`;
 

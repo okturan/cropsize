@@ -1,4 +1,4 @@
-/* scanfit editor — crop box lives in normalised coords against the transformed frame */
+/* cropsize editor — crop box lives in normalised coords against the transformed frame */
 const $ = (id) => document.getElementById(id);
 const S = {
   doc: null, page: 0, pages: [],
@@ -613,7 +613,7 @@ async function download(format) {
   const blob = await r.blob();
   const a = document.createElement("a");
   a.href = URL.createObjectURL(blob);
-  a.download = `scanfit.${format}`;
+  a.download = `cropsize.${format}`;
   a.click();
   URL.revokeObjectURL(a.href);
 }

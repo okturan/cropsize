@@ -5,7 +5,7 @@ Kept behind lazy imports so the app runs with zero ML dependencies. Enable with:
     pip install -r requirements-sam.txt
 
 Weights come from Hugging Face on first use — there is no checkpoint file to fetch by
-hand. Pick a size with SCANFIT_SAM_MODEL:
+hand. Pick a size with CROPBOX_SAM_MODEL:
 
     facebook/sam2.1-hiera-tiny         39M params, smallest download
     facebook/sam2.1-hiera-small        46M
@@ -31,7 +31,7 @@ import os
 import cv2
 import numpy as np
 
-MODEL_ID = os.environ.get("SCANFIT_SAM_MODEL", "facebook/sam2.1-hiera-base-plus")
+MODEL_ID = os.environ.get("CROPBOX_SAM_MODEL", "facebook/sam2.1-hiera-base-plus")
 
 
 def sam_available() -> bool:

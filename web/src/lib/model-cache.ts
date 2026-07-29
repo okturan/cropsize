@@ -1,5 +1,5 @@
 /** IndexedDB artifact cache. Keys include the pinned revision, so a re-pin evicts cleanly. */
-const DB = "scanfit-models";
+const DB = "cropsize-models";
 const STORE = "artifacts";
 const VERSION = 1;
 

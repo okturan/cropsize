@@ -1,4 +1,6 @@
-# scanfit
+# cropsize
+
+*Crop a scan, straighten it, print it at true physical size.*
 
 Local web app for cleaning up document scans: upload a PDF or image, detect the document
 boundary, straighten it, and place it on a real page at true physical size.
@@ -28,7 +30,7 @@ low-contrast boundaries (see *Detection quality* below).
 ```
 
 That is the whole setup — weights are pulled from Hugging Face on first use, with no
-checkpoint file to fetch by hand. Pick a size with `SCANFIT_SAM_MODEL`:
+checkpoint file to fetch by hand. Pick a size with `CROPBOX_SAM_MODEL`:
 
 | Model | Params | Notes |
 |---|---|---|

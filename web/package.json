@@ -1,5 +1,5 @@
 {
-  "name": "scanfit-web",
+  "name": "cropsize-web",
   "private": true,
   "version": "0.1.0",
   "type": "module",
@@ -9,7 +9,7 @@
     "build": "tsc -b && vite build",
     "preview": "vite preview",
     "typecheck": "tsc -b --noEmit",
-    "deploy": "npm run build && wrangler pages deploy dist --project-name scanfit"
+    "deploy": "npm run build && wrangler pages deploy dist --project-name cropsize"
   },
   "dependencies": {
     "onnxruntime-web": "^1.27.0",

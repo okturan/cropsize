@@ -1,7 +1,7 @@
 # Browser port — status and plan
 
 The goal is a static Cloudflare Pages site where nothing leaves the machine, which turns
-scanfit's privacy claim from a promise into an architecture and removes the AGPL
+cropsize's privacy claim from a promise into an architecture and removes the AGPL
 dependency (PyMuPDF) at the same time.
 
 ## Verified before writing any of this
@@ -66,7 +66,7 @@ scan and **85.6 x 54.0 mm** on the ID card is behaving.
 cd web && npm install
 npm run dev                # local, with cross-origin isolation headers
 npm run build              # -> dist, ~16 KB plus CDN'd ORT
-npm run deploy             # wrangler pages deploy dist --project-name scanfit
+npm run deploy             # wrangler pages deploy dist --project-name cropsize
 ```
 
 No Pages project exists yet; the first `npm run deploy` creates it.
