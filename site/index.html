@@ -1,0 +1,132 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>cropsize, crop a scan and print it at its real size</title>
+<meta name="description" content="Crop a scan, straighten it, and print it at exactly the size the real document is.">
+<style>
+  :root {
+    --bg:#f4f5f7; --panel:#fff; --ink:#16181c; --muted:#6b7280; --line:#e2e5ea; --accent:#2f6df6;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#131417; --panel:#1c1e22; --ink:#e9eaec; --muted:#9aa0a8; --line:#2c3038; --accent:#5b8cff; }
+  }
+  * { box-sizing:border-box }
+  body { margin:0; background:var(--bg); color:var(--ink);
+    font:16px/1.65 ui-sans-serif,-apple-system,"SF Pro Text",Segoe UI,Roboto,sans-serif }
+  .wrap { max-width:920px; margin:0 auto; padding:0 24px }
+  header { padding:72px 0 40px; text-align:center }
+  h1 { font-size:44px; margin:0 0 10px; letter-spacing:-.02em }
+  .tag { font-size:19px; color:var(--muted); margin:0 auto; max-width:34em }
+  .pill { display:inline-block; margin-top:22px; font-size:13px; color:var(--muted);
+    border:1px solid var(--line); border-radius:99px; padding:5px 14px; background:var(--panel) }
+  figure { margin:36px 0 }
+  img { width:100%; height:auto; display:block; border-radius:10px; border:1px solid var(--line) }
+  figcaption { font-size:13px; color:var(--muted); margin-top:10px; text-align:center }
+  h2 { font-size:15px; text-transform:uppercase; letter-spacing:.08em; color:var(--muted);
+    margin:56px 0 16px; font-weight:600 }
+  p { margin:0 0 16px }
+  .cards { display:grid; gap:14px; grid-template-columns:repeat(auto-fit,minmax(255px,1fr)) }
+  .card { background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:18px 20px }
+  .card h3 { margin:0 0 8px; font-size:16px }
+  .card p { margin:0; font-size:14.5px; color:var(--muted) }
+  table { width:100%; border-collapse:collapse; font-size:14.5px; background:var(--panel);
+    border:1px solid var(--line); border-radius:12px; overflow:hidden }
+  th,td { text-align:left; padding:11px 16px; border-bottom:1px solid var(--line) }
+  th { font-weight:600; font-size:13px; color:var(--muted) }
+  tr:last-child td { border-bottom:0 }
+  td:nth-child(2), td:nth-child(3) { font-variant-numeric:tabular-nums; white-space:nowrap }
+  pre { background:var(--panel); border:1px solid var(--line); border-radius:12px;
+    padding:16px 18px; overflow-x:auto; font-size:14px; margin:0 0 16px }
+  code { font-family:ui-monospace,SFMono-Regular,Menlo,monospace }
+  .note { font-size:14px; color:var(--muted); background:var(--panel);
+    border:1px solid var(--line); border-left:3px solid var(--accent);
+    border-radius:8px; padding:14px 16px }
+  footer { margin:72px 0 48px; padding-top:24px; border-top:1px solid var(--line);
+    font-size:13.5px; color:var(--muted); text-align:center }
+  a { color:var(--accent) }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <h1>cropsize</h1>
+  <p class="tag">Crop a scan, straighten it, and print it at exactly the size the real document is.</p>
+  <span class="pill">Runs on your own machine. Nothing you scan gets uploaded.</span>
+</header>
+
+<figure>
+  <img src="editor.png" alt="The cropsize editor with a document detected and measured">
+  <figcaption>The sample scan, found and measured at 104.9 by 147.9 mm. The document is 105 by 148.</figcaption>
+</figure>
+
+<h2>The problem</h2>
+<p>You scanned a passport, an ID card, a certificate. Now you need it on A4, cropped clean,
+straight, and at exactly the size the real thing is, because the office you are sending it to
+will reject it otherwise.</p>
+<p>Every scanning app crops. Almost none of them get the size right.</p>
+
+<h2>What is different</h2>
+<div class="cards">
+  <div class="card">
+    <h3>It knows how big things are</h3>
+    <p>A scanner writes the scanned area into a PDF at 1 to 1, so the real size falls straight
+    out of the pixel count. No preset, no guessing, no asking you what the object is.</p>
+  </div>
+  <div class="card">
+    <h3>It finds paper on paper</h3>
+    <p>A passport in a clear sleeve has no brightness step to threshold, so ordinary edge
+    detection grabs the printing instead. Segment Anything 2 finds objects by what they are.</p>
+  </div>
+  <div class="card">
+    <h3>It keeps rounded corners</h3>
+    <p>A crop has to be a rectangle, so the corners pick up whatever sits outside the curve.
+    cropsize traces the real outline and clears those corners to white.</p>
+  </div>
+</div>
+
+<h2>How close does it get</h2>
+<table>
+  <tr><th>Scan</th><th>cropsize reads</th><th>Off by</th></tr>
+  <tr><td>Passport on white</td><td>126.1 by 177.0 mm</td><td>1.1 and 1.0 mm</td></tr>
+  <tr><td>Passport in a plastic sleeve</td><td>127.2 by 175.4 mm</td><td>2.2 and 0.6 mm</td></tr>
+  <tr><td>ID card on a flatbed</td><td>85.6 by 53.9 mm</td><td>0.0 and 0.1 mm</td></tr>
+  <tr><td>Sample document</td><td>104.9 by 147.9 mm</td><td>0.1 and 0.1 mm</td></tr>
+</table>
+<p style="margin-top:14px; font-size:14.5px; color:var(--muted)">A passport spread is 125 by 176 mm
+by international standard, so these are measured against a known answer. The same content
+scanned at 150, 300, 600 and 1200 dpi measures the same, because a PDF has no dpi of its own
+and the page geometry is what carries the size.</p>
+
+<figure>
+  <img src="output.png" alt="The finished A4 page with the document at true size">
+  <figcaption>The finished sheet. A4 at 210 by 297 mm, document at its own size, corners cleaned.</figcaption>
+</figure>
+
+<h2>Run it</h2>
+<pre><code>git clone https://github.com/okturan/cropsize.git
+cd cropsize
+./run.sh</code></pre>
+<p>Open <code>localhost:8077</code> and click <strong>Try the sample</strong>. That is the whole tour.</p>
+<p>For real work add the model, then restart:</p>
+<pre><code>./.venv/bin/pip install -r requirements-sam.txt</code></pre>
+<p>Weights come from Hugging Face the first time you use them, about 320 MB, and stay on disk
+after that.</p>
+
+<div class="note">
+  <strong>This page is not the app.</strong> cropsize runs locally today. A version that runs
+  entirely in the browser is in progress, using the same model exported to ONNX, where the
+  encoder takes 0.74 s and each click takes 36 ms on plain CPU. Until then the link above is
+  the way in.
+</div>
+
+<footer>
+  Built for scans that have to come out the right size.
+  <a href="https://github.com/okturan/cropsize">Source</a>.
+</footer>
+
+</div>
+</body>
+</html>

@@ -162,17 +162,32 @@ def detect_sam(img: np.ndarray):
     sh, sw = small.shape[:2]
 
     predictor.set_image(cv2.cvtColor(small, cv2.COLOR_BGR2RGB))
+
+    def pick(masks, scores, hi):
+        best, best_score = None, -1.0
+        for mask, score in zip(masks, scores):
+            frac = float(mask.mean())
+            if not 0.05 < frac < hi:        # reject slivers and whole-frame masks
+                continue
+            if score > best_score:
+                best, best_score = mask, float(score)
+        return best, best_score
+
     # SAM 2 takes a bare XYXY box, where SAM 1 wanted shape (1, 4).
     inset = np.array([sw * 0.04, sh * 0.04, sw * 0.96, sh * 0.96], dtype=np.float32)
     masks, scores, _ = predictor.predict(box=inset, multimask_output=True)
+    best, best_score = pick(masks, scores, 0.97)
 
-    best, best_score = None, -1.0
-    for mask, score in zip(masks, scores):
-        frac = float(mask.mean())
-        if not 0.15 < frac < 0.97:          # reject slivers and whole-frame masks
-            continue
-        if score > best_score:
-            best, best_score = mask, float(score)
+    # A box prompt spanning most of the frame says "the thing inside this box", which on a
+    # small document sitting on a big platen is the platen. When the answer comes back
+    # covering nearly everything, ask again with a single centre point instead.
+    if best is None or float(best.mean()) > 0.85:
+        pmasks, pscores, _ = predictor.predict(
+            point_coords=np.array([[sw / 2, sh / 2]], dtype=np.float32),
+            point_labels=np.array([1], dtype=np.int32), multimask_output=True)
+        alt, alt_score = pick(pmasks, pscores, 0.85)
+        if alt is not None:
+            best, best_score = alt, alt_score
     if best is None:
         i = int(np.argmax(scores))
         best, best_score = masks[i], float(scores[i])

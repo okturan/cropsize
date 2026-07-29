@@ -9,7 +9,7 @@
     "build": "tsc -b && vite build",
     "preview": "vite preview",
     "typecheck": "tsc -b --noEmit",
-    "deploy": "npm run build && wrangler pages deploy dist --project-name cropsize"
+    "deploy": "npm run build && wrangler pages deploy dist --project-name cropsize-app"
   },
   "dependencies": {
     "onnxruntime-web": "^1.27.0",

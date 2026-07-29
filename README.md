@@ -1,178 +1,134 @@
 # cropsize
 
-*Crop a scan, straighten it, print it at true physical size.*
+Crop a scan, straighten it, and print it at its real physical size.
 
-Local web app for cleaning up document scans: upload a PDF or image, detect the document
-boundary, straighten it, and place it on a real page at true physical size.
+Live: **[cropsize.pages.dev](https://cropsize.pages.dev)**
 
-Built for the case that defeats most crop tools — a **near-white document on a near-white
-background**, like a passport inside a plastic sleeve. There is no intensity step to
-threshold, so contour and flood-fill detectors either grab the printing inside the page or
-run away to the scanner lid. SAM handles it because it segments by learned objectness
-rather than contrast.
+![The cropsize editor](docs/editor.png)
 
-## Run
+## What it is for
+
+You scanned a passport, an ID card, a certificate. Now you need it on A4, cropped clean,
+straight, and at exactly the size the real thing is, because the office you are sending it
+to will reject it otherwise.
+
+Every scanning app crops. Almost none of them get the size right. cropsize reads the real
+size off the scan itself and prints at 1 to 1, so a passport page comes out 125 by 88
+millimetres on paper, not roughly that big.
+
+## How it works
+
+Drop in a PDF or an image. It finds the document, tells you how big it actually is, and puts
+it on the sheet you choose.
+
+Three things make it more than a crop tool.
+
+**It knows how big things are.** A scanner writes the scanned area into a PDF at 1 to 1, so
+the real size falls straight out of the pixel count. On the sample scan it reads 104.9 by
+147.9 millimetres for a document that is genuinely 105 by 148. No preset, no guessing, no
+asking you what the object is.
+
+**It finds paper on paper.** A passport in a clear sleeve, a receipt on a white desk. There
+is no brightness step to threshold, so ordinary edge detection grabs the printing instead of
+the paper. cropsize uses Segment Anything 2, which finds objects by what they are rather
+than by how much they stand out.
+
+**It keeps your rounded corners.** A crop has to be a rectangle, so the corners of any real
+document pick up whatever sits outside the curve. cropsize traces the actual outline and
+clears those corners to white.
+
+![Exported at true size on A4](docs/output.png)
+
+## Try it in 30 seconds
 
 ```bash
-./run.sh                      # creates .venv, installs deps, serves on :8077
+git clone https://github.com/okturan/cropsize.git
+cd cropsize
+./run.sh
 ```
 
-Open <http://localhost:8077>. Nothing is uploaded anywhere — the server is local and
-documents are held in memory only, dropped an hour after last use.
+Open <http://localhost:8077> and click **Try the sample**. That is the whole tour.
 
-### Enable SAM 2 (recommended)
-
-Without it the app falls back to a classic-CV detector that is, honestly, mediocre on
-low-contrast boundaries (see *Detection quality* below).
+For real work you want the segmentation model too. One command, then restart:
 
 ```bash
 ./.venv/bin/pip install -r requirements-sam.txt
 ```
 
-That is the whole setup — weights are pulled from Hugging Face on first use, with no
-checkpoint file to fetch by hand. Pick a size with `CROPBOX_SAM_MODEL`:
+Weights arrive from Hugging Face the first time you use them, about 320 MB, and stay on disk
+after that. Nothing you scan ever leaves your machine.
 
-| Model | Params | Notes |
-|---|---|---|
-| `facebook/sam2.1-hiera-tiny` | 39M | smallest download, best browser-port candidate |
-| `facebook/sam2.1-hiera-small` | 46M | |
-| `facebook/sam2.1-hiera-base-plus` | 81M | **default** |
-| `facebook/sam2.1-hiera-large` | 224M | |
+## Using it
 
-The header badge shows which engine and size is live.
+Pick what is on the scan. **One document** gives you one page out. **Several items** finds
+everything on the platen and gives you a page each, every item straightened to its own
+angle, because four photos on a flatbed never share one.
 
-#### Why SAM 2, measured
+Then choose how big it should print. **Keep real size** uses the measurement it took off the
+scan. **Scale to a known size** forces an exact width, with presets for a passport spread, a
+passport page and an ID card. **Fill the sheet** is the one that is not to scale, and it says
+so.
 
-Against a true 125.0 x 176.0 mm passport spread, box-prompted:
+The preview on the right is the real output page, rendered by the same code that writes the
+file. Change the paper and watch the document stay the same size while the sheet changes
+around it.
 
-| Scan | SAM 1 (vit_b, 91M) | SAM 2.1 (base_plus, 81M) |
-|---|---|---|
-| reference A — passport on white | 125.9 x 177.2 | 126.4 x 177.0 |
-| reference B — passport in a sleeve | 128.0 x 180.7 | **127.1 x 175.5** |
+Contrast is off by default. What you export is what you scanned. Turn it up when you want
+legibility rather than fidelity.
 
-Equivalent on the easy scan and ~4 mm better on the hard one, with fewer parameters and
-faster warm inference (0.70 s vs 1.34 s). A full object sweep of a flatbed dropped from
-~3.7 s to ~1.9 s. SAM 1 support was removed rather than kept alongside.
+Keyboard: `C` crop, `S` select, `H` pan, or hold space to pan from any tool. Command or
+control plus scroll to zoom.
 
-Two SAM 1 quirks disappeared with it: `SamAutomaticMaskGenerator` built its point grid as
-float64, which Metal refuses outright, and box prompts wanted shape `(1, 4)` where SAM 2
-takes a bare `(4,)`.
+## How accurate is it
 
-## What it does
+Everything here is measured rather than estimated. The reference is a real passport spread,
+which is 125 by 176 millimetres by international standard.
 
-**Detect** — SAM box-prompted at a 4% inset, best mask that is neither a sliver nor the
-whole frame, then the sides snapped to the nearest strong straight edge at full resolution
-(SAM itself runs on a 1024 px downscale, so this recovers the last pixels).
+| Scan | cropsize reads | Off by |
+| --- | --- | --- |
+| Passport on white | 126.1 by 177.0 mm | 1.1 and 1.0 mm |
+| Passport in a plastic sleeve | 127.2 by 175.4 mm | 2.2 and 0.6 mm |
+| ID card on a flatbed | 85.6 by 53.9 mm | 0.0 and 0.1 mm |
+| Sample document | 104.9 by 147.9 mm | 0.1 and 0.1 mm |
 
-**Deskew** — projection-profile search, ±5° in 0.1° steps, picking the angle whose
-horizontal projection has the sharpest row-to-row transitions. Rotation only, no
-perspective warp: flatbed scans have no keystoning to correct, and warping one would
-distort the document for no reason.
+Resolution does not change the measurement. The same content scanned at 150, 300, 600 and
+1200 dpi measures the same to within a fraction of a millimetre, because a PDF has no dpi of
+its own and the page geometry is what carries the size.
 
-**Tone** — **off by default**: the export is the scan as it came, and contrast is there for
-when you want legibility rather than fidelity. When enabled it is CLAHE on the L\* channel
-plus a *single shared* RGB stretch — deliberately not a per-channel stretch, which shifts
-hue, and on documents colour is evidence: stamp inks, security print, paper tint.
+Skew is measured two independent ways and they agree to a quarter of a degree.
 
-**Scale** — the app infers the real-world size of what you cropped, rather than asking you
-to know it. A scanner writes the scanned area into PDF page space at 1:1, so a crop's
-physical size falls straight out of its pixel size and the page geometry. For raster files
-the same comes from PNG `pHYs` / JPEG EXIF resolution, when present.
+## What it will not do
 
-On a test passport scan this derives 126.1 × 177.0 mm with no preset selected, against a
-real ICAO ID-3 spread of 125 × 176 mm — the ~1 mm is SAM's slightly generous crop, not the
-scale. The panel shows the measured size next to the requested one, so a large gap tells
-you the *crop* is wrong.
+It corrects rotation, not perspective. Flatbed scans have no keystone to fix, so a photo
+taken at an angle with a phone will not be squared up.
 
-**Resolution** — a PDF has no dpi of its own: it has a page size in points and content
-drawn into it. The real number is `embedded_pixels ÷ drawn_inches`, so each page is
-rasterised at *its own* scan resolution rather than a fixed guess. Rendering a 600 dpi scan
-at 300 throws away half of what you were given; rendering a 150 dpi scan at 300 doubles the
-work to invent nothing. Bounds: 120–900 dpi, with a 36 MP ceiling per page.
-Export defaults to matching the source, overridable to 150/300/600.
+Click to select chooses which object you mean. It is not the precise path. For one document
+use **Detect edges**, which came out 6 mm tighter than clicking did on the sleeve scan.
 
-Measured across the same content written at four resolutions, the physical measurement is
-invariant — 150 dpi, 300, 600 and 1200 (clamped to 900) all yield the same object size to
-within 0.4 mm. Resolution affects fidelity and memory, never measurement.
+Segment Anything does not know what a passport is. On a spread inside a sleeve it offers the
+sleeve and each page, never the two pages as one thing, because that grouping is an idea
+rather than a shape. So it offers the alternatives and lets you pick, or tick two and merge.
 
-**Size on the page** — three choices, and the UI states what each will actually do rather
-than naming a preset:
+One browser tab at a time. The model holds state between two calls and the server answers
+requests in parallel, so two people at once would read each other's images.
 
-- **Keep real size** — default. The label reads back the measured size, e.g. *"print it at
-  126.1 x 177.0 mm, as measured"*.
-- **Scale to a known size** — force an exact width (passport spread 125 x 176, passport
-  page 125 x 88, ID-1 card 85.6 x 54, or custom). If the forced width differs from the
-  measured one by more than 1.5 mm the panel says so, because that gap means the *crop* is
-  wrong, not the preset.
-- **Fill the sheet** — as large as the margins allow, explicitly not to scale.
-
-**Output preview** — the right rail renders the actual composed sheet, server-side, at
-110 dpi. It is the same code path as the export, so it is not an approximation: change the
-paper size and you watch the item stay the same physical size while the sheet around it
-changes.
-
-## Detection quality — what to expect
-
-Measured against hand-measured ground truth on two passport-in-holder scans:
-
-| Engine | Result |
-|---|---|
-| SAM 2.1 (base_plus) + edge snap | within ~1–2 mm on all four sides, well under 1 s per page warm on Apple Silicon MPS |
-| Classic CV | gets skew right; the box is a rough starting point and often includes the holder |
-
-Known ranking weakness: groups are ordered by SAM's own confidence, which is not always
-the tightest boundary. On the synthetic flatbed one item defaults to 92.7 x 109.7 mm while
-its *first alternative* is 78.5 x 109.7 — the correct one, one ⇄ click away. Ranking
-candidates by how well their edges are supported in the image would likely fix this.
-
-The classic path is a fallback, not a peer. On these scans I tried Canny + contour quad
-(locks onto the guilloche printing), flood-fill from the borders (leaks straight into the
-page — paper and sleeve are both near-white), and a local-variance texture threshold (the
-holder's fabric stitching has as much variance as the security print). A parameter sweep of
-the surviving gradient heuristic gave unstable answers across the two files, which is why
-the app ships with a manual editor rather than pretending the box is always right.
-
-**The crop box is always editable.** Auto-detect is a starting point.
-
-- **Crop tool** (`C`) — drag the box to move, a handle to resize, double-click to reset.
-- **Pan tool** (`H`), hold space, or middle-drag — drag to move the view.
-- Zoom with the `−` / `+` / Fit / 100% buttons or ⌘/Ctrl + scroll, anchored on the cursor.
-  Zoom scales the canvas backing store, so zooming in sharpens rather than blurs.
-
-## Layout
+## Under the hood
 
 ```
-app.py            FastAPI routes: upload, preview, detect, measure, export
-pipeline.py       imaging — load, transform, skew, tone, detect (classic), page layout
-sam_backend.py    optional SAM 2 detector, lazily imported so torch stays optional
-static/           editor UI (vanilla JS canvas, no build step)
+app.py            HTTP routes
+pipeline.py       loading, transforms, deskew, tone, page layout
+sam_backend.py    Segment Anything 2, imported only if installed
+static/           the editor, plain JavaScript and a canvas
+tests/            15 tests, no model needed
+web/              browser build, see web/PORT.md
+site/             the landing page, deploy with ./deploy-site.sh
 ```
 
-The transform order is fixed at `rotate90 → deskew → tone`, and the editor previews exactly
-that frame, so a crop box in normalised coordinates means the same thing in the preview and
-at export. Change the order in one place and both follow.
+Python with FastAPI, OpenCV and PyMuPDF. The model is SAM 2.1 running on Metal, CUDA or CPU,
+whichever you have, at roughly half a second per page once warm.
 
-## API
-
-Usable headlessly:
-
-```bash
-ID=$(curl -s -F "file=@scan.pdf" localhost:8077/api/upload | jq -r .doc_id)
-curl -s -X POST localhost:8077/api/detect -H 'Content-Type: application/json' \
-  -d "{\"doc_id\":\"$ID\",\"page\":0,\"engine\":\"sam\"}"
-curl -s -X POST localhost:8077/api/export -H 'Content-Type: application/json' \
-  -d "{\"doc_id\":\"$ID\",\"pages\":[{\"page\":0,\"box\":[0.07,0.04,0.96,0.95],\"skew\":-1.4}],
-       \"page_size\":\"a4\",\"fit\":\"real\",\"target_width_mm\":125}" -o out.pdf
-```
-
-## Known limits
-
-- Rotation is 90° steps plus fine deskew. There is no perspective/keystone correction, so
-  phone photos taken at an angle will not be squared up.
-- Multi-page PDFs: pages are selectable and each keeps its own crop, but export currently
-  emits the page you have open.
-- SAM 2 on CPU is slow. MPS or CUDA is much better.
-- In-memory sessions — restarting the server drops uploads.
+Order is fixed at rotate, then straighten, then tone. The editor previews that exact frame,
+so a crop box means the same thing on screen as it does in the file.
 
 ## Tests
 
@@ -181,14 +137,11 @@ curl -s -X POST localhost:8077/api/export -H 'Content-Type: application/json' \
 ./.venv/bin/pytest tests/ -q
 ```
 
-They run on the classic-CV path with synthetic PDFs, so no model weights or torch are
-needed — which is also what CI runs. The properties covered are the ones that would ruin
-output silently: render dpi following the embedded scan, measurement staying invariant
-across resolutions, physical size surviving a crop, exact page geometry, preset boxes
-constraining the taller axis, lossless rotation, skew recovery, and outline trimming.
+They cover what would go wrong quietly rather than loudly. Real size surviving a crop. The
+same measurement at every resolution. Page geometry to half a millimetre. Two presets that
+share a width behaving differently, which they did not until a test caught it.
 
 ## Licence
 
-All rights reserved — see `LICENSE`. Note that PyMuPDF, currently used for PDF rendering,
-is AGPL-3.0-or-commercial; swapping it for pypdfium2 would remove that constraint before
-any hosted or distributed use.
+All rights reserved, see [LICENSE](LICENSE). PyMuPDF, used for reading PDFs, is AGPL or a
+paid licence from Artifex, so swapping it for pypdfium2 comes before any hosted version.

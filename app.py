@@ -5,6 +5,8 @@ import io
 import time
 import uuid
 
+from pathlib import Path
+
 import cv2
 import numpy as np
 from fastapi import FastAPI, HTTPException, UploadFile, File
@@ -44,22 +46,21 @@ def _meta(doc_id: str, page: int) -> P.PageMeta:
     return entry["metas"][page]
 
 
-@app.post("/api/upload")
-async def upload(file: UploadFile = File(...)):
-    data = await file.read()
-    if len(data) > MAX_UPLOAD_BYTES:
-        raise HTTPException(413, "file larger than 60 MB")
+SAMPLE_SCAN = Path(__file__).resolve().parent / "docs" / "sample-scan.pdf"
+
+
+def _store(data: bytes, filename: str) -> dict:
     try:
-        pages, metas = P.load_pages(data, file.filename or "upload")
+        pages, metas = P.load_pages(data, filename)
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(400, f"could not read file: {exc}") from exc
 
     _reap()
     doc_id = uuid.uuid4().hex[:12]
-    DOCS[doc_id] = {"pages": pages, "metas": metas, "name": file.filename, "ts": time.time()}
+    DOCS[doc_id] = {"pages": pages, "metas": metas, "name": filename, "ts": time.time()}
     return {
         "doc_id": doc_id,
-        "name": file.filename,
+        "name": filename,
         "pages": [
             {"index": i, "w": p.shape[1], "h": p.shape[0],
              "mm_per_px": m.mm_per_px, "source_dpi": m.source_dpi,
@@ -68,6 +69,22 @@ async def upload(file: UploadFile = File(...)):
             for i, (p, m) in enumerate(zip(pages, metas))
         ],
     }
+
+
+@app.post("/api/upload")
+async def upload(file: UploadFile = File(...)):
+    data = await file.read()
+    if len(data) > MAX_UPLOAD_BYTES:
+        raise HTTPException(413, "file larger than 60 MB")
+    return _store(data, file.filename or "upload")
+
+
+@app.post("/api/sample")
+def sample():
+    """Load the bundled specimen scan, so the app can demonstrate itself."""
+    if not SAMPLE_SCAN.exists():
+        raise HTTPException(404, "sample scan is not installed")
+    return _store(SAMPLE_SCAN.read_bytes(), SAMPLE_SCAN.name)
 
 
 @app.get("/api/preview/{doc_id}/{page}")

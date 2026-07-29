@@ -26,7 +26,19 @@ async function upload(file) {
   fd.append("file", file);
   const r = await fetch("/api/upload", { method: "POST", body: fd });
   if (!r.ok) { busy(false); return alert((await r.json()).detail || "upload failed"); }
-  const d = await r.json();
+  await adopt(await r.json());
+  busy(false);
+}
+
+$("loadSample").onclick = async () => {
+  busy(true);
+  const r = await fetch("/api/sample", { method: "POST" });
+  if (!r.ok) { busy(false); return alert("sample scan is not installed"); }
+  await adopt(await r.json());
+  busy(false);
+};
+
+async function adopt(d) {
   S.doc = d.doc_id; S.pages = d.pages; S.page = 0; S.rot = 0; S.skew = 0;
   S.objects = []; S.sel = -1; S.checked.clear(); S.mode = "single"; renderObjects();
   $("drop").hidden = true; $("editor").hidden = false;
@@ -43,7 +55,11 @@ async function upload(file) {
   S.zoom = 1; $("zoomLevel").textContent = "fit";
   await refresh();
   await detect();                       // first pass is automatic; user can redo or adjust
-  busy(false);
+}
+
+// ?sample=1 boots straight into the sample, which is how the screenshots are taken.
+if (new URLSearchParams(location.search).get("sample")) {
+  addEventListener("DOMContentLoaded", () => $("loadSample").click());
 }
 
 function buildStrip() {
