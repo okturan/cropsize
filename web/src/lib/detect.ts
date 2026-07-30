@@ -37,70 +37,73 @@ function maskBounds(mask: Float32Array, size: number): Box | null {
 const area = (b: Box) => (b.x1 - b.x0) * (b.y1 - b.y0);
 
 /**
- * Tidy a raw mask before anything trusts it as the document's outline.
+ * Turn a raw mask into the document's silhouette.
  *
- * A SAM mask is not a solid shape. Over flat bright areas it leaves gaps: on a real passport
- * scan the mask came back with 2.6% of the document as interior holes, one of them a single
- * blob 350 px across at mask resolution. Trimming to that punches white patches out of the
- * middle of the page, which looks exactly like a magic wand that only caught the contrasty
- * pixels.
+ * A SAM mask is not a faithful outline. It leaves gaps over flat bright areas, its boundary
+ * is ragged, and on a passport spread it splits at the gutter into separate pieces. Trimming
+ * straight to it punched white holes through the page and left speckle along the edges.
  *
- * Two passes. Keep only the largest connected region, which drops stray blobs picked up off
- * the platen, then fill anything enclosed by it, because a document has no holes in it.
+ * Taking the convex hull of every mask pixel fixes all three at once, and it is the right
+ * shape to assume: a document is convex, so its true outline is a rounded rectangle, and a
+ * hull reproduces that while smoothing away ragged edges and bridging the gutter.
+ *
+ * Note what this deliberately does NOT do. An earlier version kept only the largest connected
+ * region first, which on a landscape passport spread meant keeping one page and discarding
+ * the other: measured, that whited out 72.7% of the second page. A hull can only ever grow,
+ * so the worst it can do is leave a little background in, which is recoverable. Dropping a
+ * component is not.
  */
 export function cleanMask(mask: Float32Array, size: number): Float32Array {
-  const n = size * size;
-  const on = new Uint8Array(n);
-  for (let i = 0; i < n; i++) on[i] = (mask[i] ?? -1) > 0 ? 1 : 0;
-
-  // largest connected region
-  const label = new Int32Array(n).fill(-1);
-  const stack: number[] = [];
-  let best = -1, bestSize = 0, current = 0;
-  for (let seed = 0; seed < n; seed++) {
-    if (!on[seed] || label[seed] !== -1) continue;
-    let count = 0;
-    stack.push(seed);
-    label[seed] = current;
-    while (stack.length) {
-      const p = stack.pop()!;
-      count++;
-      const x = p % size, y = (p / size) | 0;
-      if (x > 0 && on[p - 1] && label[p - 1] === -1) { label[p - 1] = current; stack.push(p - 1); }
-      if (x < size - 1 && on[p + 1] && label[p + 1] === -1) { label[p + 1] = current; stack.push(p + 1); }
-      if (y > 0 && on[p - size] && label[p - size] === -1) { label[p - size] = current; stack.push(p - size); }
-      if (y < size - 1 && on[p + size] && label[p + size] === -1) { label[p + size] = current; stack.push(p + size); }
+  const pts: [number, number][] = [];
+  for (let y = 0; y < size; y++) {
+    let first = -1, last = -1;
+    for (let x = 0; x < size; x++) {
+      if ((mask[y * size + x] ?? -1) > 0) { if (first < 0) first = x; last = x; }
     }
-    if (count > bestSize) { bestSize = count; best = current; }
-    current++;
+    if (first >= 0) { pts.push([first, y], [last, y]); }   // row extremes are enough for a hull
   }
-  const keep = new Uint8Array(n);
-  for (let i = 0; i < n; i++) keep[i] = label[i] === best ? 1 : 0;
+  if (pts.length < 3) return mask;
 
-  // fill enclosed gaps: flood the background inward from the border, whatever it cannot
-  // reach is a hole
-  const outside = new Uint8Array(n);
-  for (let i = 0; i < size; i++) {
-    for (const p of [i, n - size + i, i * size, i * size + size - 1]) {
-      if (!keep[p] && !outside[p]) { outside[p] = 1; stack.push(p); }
+  // Andrew's monotone chain.
+  pts.sort((a, b) => (a[0] - b[0]) || (a[1] - b[1]));
+  const cross = (o: [number, number], a: [number, number], b: [number, number]) =>
+    (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0]);
+  const half = (input: [number, number][]) => {
+    const out: [number, number][] = [];
+    for (const p of input) {
+      while (out.length >= 2 && cross(out[out.length - 2]!, out[out.length - 1]!, p) <= 0) out.pop();
+      out.push(p);
+    }
+    out.pop();
+    return out;
+  };
+  const hull = [...half(pts), ...half([...pts].reverse())];
+  if (hull.length < 3) return mask;
+
+  // Scanline fill: for each row, the hull is one continuous span.
+  const out = new Float32Array(size * size).fill(-1);
+  for (let y = 0; y < size; y++) {
+    let lo = Infinity, hi = -Infinity;
+    for (let i = 0; i < hull.length; i++) {
+      const a = hull[i]!, b = hull[(i + 1) % hull.length]!;
+      if ((a[1] <= y && b[1] > y) || (b[1] <= y && a[1] > y)) {
+        const t = (y - a[1]) / (b[1] - a[1]);
+        const x = a[0] + t * (b[0] - a[0]);
+        if (x < lo) lo = x;
+        if (x > hi) hi = x;
+      }
+      if (a[1] === y) { if (a[0] < lo) lo = a[0]; if (a[0] > hi) hi = a[0]; }
+    }
+    if (lo > hi) continue;
+    for (let x = Math.max(0, Math.round(lo)); x <= Math.min(size - 1, Math.round(hi)); x++) {
+      out[y * size + x] = 1;
     }
   }
-  while (stack.length) {
-    const p = stack.pop()!;
-    const x = p % size, y = (p / size) | 0;
-    if (x > 0 && !keep[p - 1] && !outside[p - 1]) { outside[p - 1] = 1; stack.push(p - 1); }
-    if (x < size - 1 && !keep[p + 1] && !outside[p + 1]) { outside[p + 1] = 1; stack.push(p + 1); }
-    if (y > 0 && !keep[p - size] && !outside[p - size]) { outside[p - size] = 1; stack.push(p - size); }
-    if (y < size - 1 && !keep[p + size] && !outside[p + size]) { outside[p + size] = 1; stack.push(p + size); }
-  }
-
-  const out = new Float32Array(n);
-  for (let i = 0; i < n; i++) out[i] = (keep[i] || !outside[i]) ? 1 : -1;
   return out;
 }
 
 /**
- * Pull each side onto the strongest straight edge near it.
+ *  * Pull each side onto the strongest straight edge near it.
  *
  * The mask is computed at 256 by 256 and upsampled, so its boundary is only good to a couple
  * of millimetres at 300 dpi. A document edge is a long straight step, so it dominates the

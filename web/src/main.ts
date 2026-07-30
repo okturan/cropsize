@@ -5,7 +5,7 @@
 import { Sam } from "./lib/sam";
 import { detect, type Box } from "./lib/detect";
 import { loadFile, loadSample, type Scan } from "./lib/source";
-import { estimateSkew, rotate } from "./lib/deskew";
+import { estimateSkew, rotate, quarterTurns } from "./lib/deskew";
 import { applyTone } from "./lib/tone";
 import {
   cropCanvas, exportPdf, measure, plan, trimToMask,
@@ -301,6 +301,28 @@ for (const id of ["file", "file2"]) {
   });
 }
 $("startOver").addEventListener("click", () => location.reload());
+
+/**
+ * Quarter turns, which the Python build has and this did not. Rotating changes the frame
+ * everything else refers to, so the original, the straightening and the detection all have to
+ * be redone against it rather than patched.
+ */
+async function turn(quarters: number) {
+  if (!S.scan || !S.original) return;
+  S.original = quarterTurns(S.original, quarters);
+  S.skew = estimateSkew(S.original);
+  $<HTMLInputElement>("skew").value = String(S.skew);
+  $("skewOut").textContent = S.skew.toFixed(1);
+  S.scan = { ...S.scan, image: rotate(S.original, S.skew) };
+  S.mask = null;
+  retone();
+  draw();
+  refreshOutput();
+  await runDetect();
+}
+$("rotL").addEventListener("click", () => turn(3));
+$("rotR").addEventListener("click", () => turn(1));
+$("rot180").addEventListener("click", () => turn(2));
 
 $("model").addEventListener("change", async e => {
   quality = (e.target as HTMLSelectElement).value as Quality;
