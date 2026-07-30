@@ -1,18 +1,18 @@
 # Browser port — status and plan
 
 The goal is a static Cloudflare Pages site where nothing leaves the machine, which turns
-cropsize's privacy claim from a promise into an architecture and removes the AGPL
-dependency (PyMuPDF) at the same time.
+cropsize's privacy claim from a promise into an architecture and removes PyMuPDF from the
+deployed browser path. The repository itself is licensed under AGPL-3.0.
 
 ## Verified before writing any of this
 
 | Question | Answer |
 |---|---|
 | Does SAM 2.1 ONNX exist? | Yes — `onnx-community/sam2.1-hiera-{tiny,small,base-plus,large}-ONNX`, encoder and decoder as separate graphs. No export work needed. |
-| Does it run, and is it accurate enough? | Yes. tiny/fp32 on the reference A reference scan gives **126.9 x 177.5 mm** against torch base-plus's 126.1 x 177.0 and a true 125.0 x 176.0 — a 39M model within 0.8 mm of the 81M one. |
+| Does it run, and is it accurate enough? | Yes. tiny/fp32 on the white-background reference scan gives **126.9 x 177.5 mm** against torch base-plus's 126.1 x 177.0 and a true 125.0 x 176.0 — a 39M model within 0.8 mm of the 81M one. |
 | Is it fast enough? | On **CPU**: encoder 0.74 s, decoder **36 ms**. The decoder is the per-click path, so clicking and hovering will feel instant; WebGPU only improves the encode. |
 | Download size? | tiny/fp16 **77.5 MB**, tiny/fp32 155 MB, base-plus/fp16 163 MB. |
-| Licences | onnxruntime-web MIT, pdfjs-dist Apache-2.0, pdf-lib MIT, opencv-js Apache-2.0. All permissive; **pdfjs-dist replacing PyMuPDF removes the AGPL constraint.** |
+| Licences | onnxruntime-web MIT, pdfjs-dist Apache-2.0, pdf-lib MIT and split.js MIT. The browser path does not load PyMuPDF; third-party notices ship with the build. |
 
 ## Done
 
@@ -57,8 +57,8 @@ the reference scans, then the imaging translation, then export.
 The Python test suite encodes the properties that must survive the port: measurement
 invariant across 150/300/600/1200 dpi, physical size surviving a crop, exact page geometry,
 preset boxes constraining the taller axis. Port those to Vitest and the browser build has
-the same safety net. Any implementation that reproduces **126.x x 177.x mm** on the reference A
-scan and **85.6 x 54.0 mm** on the ID card is behaving.
+the same safety net. Any implementation that reproduces **126.x x 177.x mm** on the
+white-background reference scan and **85.6 x 54.0 mm** on the ID card is behaving.
 
 ## Deploy
 

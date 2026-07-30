@@ -37,9 +37,12 @@ h1 { font-size: 18px; margin: 0; letter-spacing: -0.01em; }
   font-size: 12px; padding: 3px 10px; border-radius: 99px;
   border: 1px solid var(--line); color: var(--muted); white-space: nowrap;
 }
+.legal { margin-left: auto; font-size: 11.5px; color: var(--muted); white-space: nowrap; }
+.legal a { color: var(--accent); }
 #samBadge { margin-left: auto; }
 #srcBadge { margin-left: auto; }
 #srcBadge + #samBadge { margin-left: 0; }
+.legal ~ #samBadge, .legal ~ #srcBadge { margin-left: 0; }
 .badge.on { color: #0a7d3e; border-color: #0a7d3e55; }
 @media (prefers-color-scheme: dark) { .badge.on { color: #5fd08a; border-color: #5fd08a44; } }
 

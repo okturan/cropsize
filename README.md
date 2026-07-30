@@ -169,5 +169,10 @@ share a width behaving differently, which they did not until a test caught it.
 
 ## Licence
 
-All rights reserved, see [LICENSE](LICENSE). PyMuPDF, used for reading PDFs, is AGPL or a
-paid licence from Artifex, so swapping it for pypdfium2 comes before any hosted version.
+Copyright © 2026 Okan Erturan. cropsize is free software under the
+[GNU Affero General Public License v3](LICENSE) (`AGPL-3.0-only`). That is also the
+open-source licensing path used by the Python app's PyMuPDF dependency.
+
+The browser build does not use PyMuPDF; it reads and writes PDFs with PDF.js and pdf-lib.
+The libraries and model artifacts it uses keep their own licences. Their exact versions,
+sources and notices are in [Third-party notices](web/public/THIRD_PARTY_NOTICES.md).

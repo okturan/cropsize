@@ -2,6 +2,7 @@
   "name": "cropsize-web",
   "private": true,
   "version": "0.1.0",
+  "license": "AGPL-3.0-only",
   "type": "module",
   "engines": {
     "node": ">=22"
@@ -11,10 +12,9 @@
     "build": "tsc -b && vite build",
     "preview": "vite preview",
     "typecheck": "tsc -b --noEmit",
-    "deploy": "npm run build && wrangler pages deploy dist --project-name cropsize-app"
+    "deploy": "npm run build && wrangler pages deploy dist --project-name cropsize --branch main"
   },
   "dependencies": {
-    "@techstark/opencv-js": "^5.0.0-release.1",
     "onnxruntime-web": "^1.27.0",
     "pdf-lib": "^1.17.1",
     "pdfjs-dist": "^6.2.108",

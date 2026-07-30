@@ -1,8 +1,6 @@
 import { defineConfig } from "vite";
 
 export default defineConfig({
-  // ORT Web ships .wasm/.mjs it fetches at runtime; keep them as real files, not inlined.
-  optimizeDeps: { exclude: ["@techstark/opencv-js"] },
   build: {
     target: "es2022",
     sourcemap: true,
