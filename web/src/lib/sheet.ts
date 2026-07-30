@@ -39,7 +39,7 @@ export interface Layout {
  * where the paper stops, so use it rather than accept the square corners.
  */
 export function trimToMask(
-  canvas: OffscreenCanvas, box: Box, mask: Float32Array, size: number,
+  canvas: OffscreenCanvas, _box: Box, mask: Float32Array, size: number,
 ): OffscreenCanvas {
   const ctx = canvas.getContext("2d")!;
   const img = ctx.getImageData(0, 0, canvas.width, canvas.height);
@@ -47,12 +47,29 @@ export function trimToMask(
   const at = (x: number, y: number) =>
     mask[Math.min(size - 1, Math.max(0, y)) * size + Math.min(size - 1, Math.max(0, x))] ?? -1;
 
+  // Fit the outline to the crop by its own bounds rather than through the detected box.
+  // The box is snapped to the strongest edge afterwards, so the two disagree by a millimetre
+  // or two, and that offset is what left some corners square and clipped others. Anchoring
+  // the outline to the crop puts its arcs exactly at the crop's corners.
+  let hx0 = size, hy0 = size, hx1 = -1, hy1 = -1;
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < size; x++) {
+      if ((mask[y * size + x] ?? -1) > 0) {
+        if (x < hx0) hx0 = x;
+        if (x > hx1) hx1 = x;
+        if (y < hy0) hy0 = y;
+        if (y > hy1) hy1 = y;
+      }
+    }
+  }
+  if (hx1 < hx0 || hy1 < hy0) return canvas;
+  const spanX = hx1 - hx0 + 1, spanY = hy1 - hy0 + 1;
+
   for (let y = 0; y < canvas.height; y++) {
-    // Map back into mask space, which covers the whole source frame.
-    const my = (box.y0 + (y / canvas.height) * (box.y1 - box.y0)) * size - 0.5;
+    const my = hy0 + (y / canvas.height) * spanY - 0.5;
     const fy = Math.floor(my), wy = my - fy;
     for (let x = 0; x < canvas.width; x++) {
-      const mx = (box.x0 + (x / canvas.width) * (box.x1 - box.x0)) * size - 0.5;
+      const mx = hx0 + (x / canvas.width) * spanX - 0.5;
       const fx = Math.floor(mx), wx = mx - fx;
       // Bilinear, so the boundary is a soft edge rather than a staircase of mask pixels,
       // each one of which is several millimetres across at print size.

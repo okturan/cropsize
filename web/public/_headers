@@ -1,10 +1,15 @@
 # Cloudflare Pages headers.
+#
 # Cross-origin isolation is what lets ONNX Runtime Web use threaded WASM. Without it ORT
-# silently falls back to single-threaded and the encoder takes several times longer.
+# falls back to a single thread and the encoder takes several times longer.
+#
+# credentialless rather than require-corp: both unlock threads, but require-corp would need
+# a CORP header on the weights from Hugging Face, which is not ours to add.
+#
+# Comments must sit outside the rule block. Indented ones inside it are parsed as headers,
+# which risks the whole block being discarded, and losing the block loses the threads.
 /*
   Cross-Origin-Opener-Policy: same-origin
-  # credentialless rather than require-corp: it still unlocks threaded WASM in Chrome while
-  # letting the model download from Hugging Face without needing a CORP header from them.
   Cross-Origin-Embedder-Policy: credentialless
   X-Content-Type-Options: nosniff
   Referrer-Policy: no-referrer

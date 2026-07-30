@@ -136,9 +136,14 @@ async function runDetect() {
   try {
     const r = await detect(sam, S.scan.image, p => {
       $<HTMLElement>("fill").style.width = `${Math.round(p.fraction * 100)}%`;
-      $("progressNote").textContent = p.status;
-      setStatus(`Downloading, ${MB(p.loadedBytes)} of ${MB(total())}`);
+      $("progressNote").textContent = p.totalBytes
+        ? `${p.status}${Sam.threaded ? "" : "  ·  single threaded, so this is slower than it should be"}`
+        : p.status;
+      if (p.totalBytes) setStatus(`Downloading, ${MB(p.loadedBytes)} of ${MB(total())}`);
     });
+    $("progressLabel").textContent = "Finding the document";
+    $("progressNote").textContent = Sam.threaded
+      ? "running the model" : "running the model on a single thread";
     if (first) $("progressLabel").textContent = "Looking for the document";
     S.mask = { mask: r.mask, size: r.maskSize };
     S.box = r.box;
@@ -303,22 +308,45 @@ for (const id of ["file", "file2"]) {
 $("startOver").addEventListener("click", () => location.reload());
 
 /**
- * Quarter turns, which the Python build has and this did not. Rotating changes the frame
- * everything else refers to, so the original, the straightening and the detection all have to
- * be redone against it rather than patched.
+ * Quarter turns.
+ *
+ * Nothing is recomputed. Rotating used to re-measure the tilt and re-run the model, which
+ * meant sitting through an encode for an operation that changes no information at all. A
+ * quarter turn is exact: the crop box, the mask and the tilt all rotate with the frame, so
+ * they are transformed rather than rediscovered, and the turn is instant.
  */
-async function turn(quarters: number) {
+function turnBox(b: Box, k: number): Box {
+  if (k === 1) return { x0: 1 - b.y1, y0: b.x0, x1: 1 - b.y0, y1: b.x1 };   // clockwise
+  if (k === 2) return { x0: 1 - b.x1, y0: 1 - b.y1, x1: 1 - b.x0, y1: 1 - b.y0 };
+  if (k === 3) return { x0: b.y0, y0: 1 - b.x1, x1: b.y1, y1: 1 - b.x0 };
+  return b;
+}
+
+function turnMask(mask: Float32Array, size: number, k: number): Float32Array {
+  if (k === 0) return mask;
+  const out = new Float32Array(size * size);
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < size; x++) {
+      const v = mask[y * size + x] ?? -1;
+      const nx = k === 1 ? size - 1 - y : k === 2 ? size - 1 - x : y;
+      const ny = k === 1 ? x : k === 2 ? size - 1 - y : size - 1 - x;
+      out[ny * size + nx] = v;
+    }
+  }
+  return out;
+}
+
+function turn(quarters: number) {
   if (!S.scan || !S.original) return;
-  S.original = quarterTurns(S.original, quarters);
-  S.skew = estimateSkew(S.original);
-  $<HTMLInputElement>("skew").value = String(S.skew);
-  $("skewOut").textContent = S.skew.toFixed(1);
+  const k = ((quarters % 4) + 4) % 4;
+  S.original = quarterTurns(S.original, k);
+  // The tilt relative to the axes is unchanged by a quarter turn, so it carries over as is.
   S.scan = { ...S.scan, image: rotate(S.original, S.skew) };
-  S.mask = null;
+  S.box = turnBox(S.box, k);
+  if (S.mask) S.mask = { mask: turnMask(S.mask.mask, S.mask.size, k), size: S.mask.size };
   retone();
   draw();
   refreshOutput();
-  await runDetect();
 }
 $("rotL").addEventListener("click", () => turn(3));
 $("rotR").addEventListener("click", () => turn(1));

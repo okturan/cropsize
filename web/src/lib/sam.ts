@@ -31,6 +31,12 @@ async function session(
     ? ["webgpu", "wasm"] : ["wasm"];
   for (const backend of order) {
     try {
+      // Building the session is the slow part once the bytes are here, and it reports
+      // nothing, so say what is happening rather than leaving a full bar sitting still.
+      onProgress({
+        fraction: 1, loadedBytes: 0, totalBytes: 0,
+        status: `preparing ${which.replace(/_/g, " ")}, this takes a few seconds`,
+      });
       const s = await ort.InferenceSession.create(graph, {
         executionProviders: [backend], externalData,
       });
@@ -53,15 +59,25 @@ export class Sam {
   constructor(private quality: Quality = "tiny", private precision: Precision = "fp32") {}
 
   async ready(onProgress: (p: LoadProgress) => void): Promise<void> {
+    // One bar across both artifacts. Reporting each pair separately made the bar fill, reset
+    // and then sit still, which reads as a hang rather than as progress.
+    const encShare = 0.86;
     if (!this.encoder) {
-      const r = await session(this.quality, this.precision, "vision_encoder", onProgress);
+      const r = await session(this.quality, this.precision, "vision_encoder",
+        p => onProgress({ ...p, fraction: p.fraction * encShare }));
       this.encoder = r.session;
       this.backend = r.backend;
     }
     if (!this.decoder) {
-      const r = await session(this.quality, this.precision, "prompt_encoder_mask_decoder", onProgress);
+      const r = await session(this.quality, this.precision, "prompt_encoder_mask_decoder",
+        p => onProgress({ ...p, fraction: encShare + p.fraction * (1 - encShare) }));
       this.decoder = r.session;
     }
+  }
+
+  /** Threads need cross origin isolation. Without it the encoder is several times slower. */
+  static get threaded(): boolean {
+    return typeof crossOriginIsolated !== "undefined" && crossOriginIsolated;
   }
 
   /** Which of the four files are already in the cache. */
