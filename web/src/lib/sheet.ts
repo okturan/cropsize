@@ -30,6 +30,35 @@ export interface Layout {
   fit: Fit;
   preset: PresetName;
   marginMm: number;
+  trim?: { mask: Float32Array; size: number } | null;
+}
+
+/**
+ * Clear whatever sits outside the traced document. A crop has to be a rectangle, so the
+ * corners of a rounded document pick up the platen or the sleeve behind it. The mask knows
+ * where the paper stops, so use it rather than accept the square corners.
+ */
+export function trimToMask(
+  canvas: OffscreenCanvas, box: Box, mask: Float32Array, size: number,
+): OffscreenCanvas {
+  const ctx = canvas.getContext("2d")!;
+  const img = ctx.getImageData(0, 0, canvas.width, canvas.height);
+  const d = img.data;
+  for (let y = 0; y < canvas.height; y++) {
+    // Map back into mask space, which covers the whole source frame.
+    const my = (box.y0 + (y / canvas.height) * (box.y1 - box.y0)) * size;
+    const y0 = Math.min(size - 1, Math.max(0, Math.floor(my)));
+    for (let x = 0; x < canvas.width; x++) {
+      const mx = (box.x0 + (x / canvas.width) * (box.x1 - box.x0)) * size;
+      const x0 = Math.min(size - 1, Math.max(0, Math.floor(mx)));
+      if ((mask[y0 * size + x0] ?? -1) <= 0) {
+        const i = (y * canvas.width + x) * 4;
+        d[i] = 255; d[i + 1] = 255; d[i + 2] = 255;
+      }
+    }
+  }
+  ctx.putImageData(img, 0, 0);
+  return canvas;
 }
 
 export function cropCanvas(img: ImageData, box: Box): OffscreenCanvas {
@@ -112,7 +141,8 @@ export async function exportPdf(
   scan: Scan, box: Box, layout: Layout, dpi = 300,
 ): Promise<Blob> {
   const { sheetMm, contentMm } = plan(scan, box, layout);
-  const crop = cropCanvas(scan.image, box);
+  let crop = cropCanvas(scan.image, box);
+  if (layout.trim) crop = trimToMask(crop, box, layout.trim.mask, layout.trim.size);
 
   // Resample once, to exactly the pixels the printed size needs at the export resolution.
   const wPx = Math.max(1, Math.round((contentMm[0] / 25.4) * dpi));

@@ -24,6 +24,11 @@ export interface ModelArtifacts {
   weightsName: string;       // what the graph's external-data record points at
 }
 
+/** Cache keys carry the revision, so re-pinning the model evicts the old files. */
+export function artifactKey(quality: Quality, name: string): string {
+  return `${MODELS[quality].revision}/${name}`;
+}
+
 function artifactUrl(quality: Quality, name: string): string {
   if (!MODEL_FILE_PATTERN.test(name) || name.includes("..")) {
     throw new Error(`Refusing unexpected model filename: ${name}`);
@@ -40,7 +45,7 @@ async function fetchExact(
   const expected = artifactSize(quality, name);
   if (expected > MAX_MODEL_BYTES) throw new Error(`Manifest entry too large: ${name}`);
 
-  const cacheKey = `${MODELS[quality].revision}/${name}`;
+  const cacheKey = artifactKey(quality, name);
   const cached = await getCached(cacheKey);
   if (cached && cached.byteLength === expected) {
     onChunk(expected);

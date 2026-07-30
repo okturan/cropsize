@@ -18,7 +18,7 @@
 <header>
   <h1>cropsize</h1>
   <p class="tag">Crop a scan and print it at its real size.</p>
-  <span id="engine" class="badge">starting up</span>
+  <span id="engine" class="badge" title="where the model is and what it runs on">checking the model</span>
 </header>
 
 <main>
@@ -34,9 +34,19 @@
 
     <div id="editor" hidden>
       <div class="bar">
+        <span id="fileName" class="fileName"></span>
+        <label class="btnLike">Open another
+          <input type="file" id="file2" accept=".pdf,.png,.jpg,.jpeg,.webp" hidden></label>
         <button id="redetect">Detect again</button>
-        <span id="note" class="note"></span>
+        <button id="startOver">Start over</button>
+        <label class="check" title="clear the corners outside the traced outline">
+          <input type="checkbox" id="trim" checked> trim corners</label>
+        <span class="barRight">
+          <label class="slider inline">Straighten <output id="skewOut">0.0</output>
+            <input type="range" id="skew" min="-5" max="5" step="0.1" value="0"></label>
+        </span>
       </div>
+      <p id="note" class="note"></p>
       <div class="canvasWrap"><canvas id="canvas"></canvas></div>
       <p class="hint">Drag inside the box to move it, drag a corner to resize, double click to reset.</p>
     </div>
@@ -97,7 +107,6 @@
 
     <section class="group">
       <button id="download" class="primary">Download the PDF</button>
-      <button id="reset" class="ghost">Start over</button>
     </section>
   </aside>
 </main>

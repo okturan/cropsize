@@ -38,3 +38,19 @@ export async function setCache(key: string, value: ArrayBuffer): Promise<void> {
     tx.onerror = () => reject(tx.error);
   });
 }
+
+/** How many of these keys are already stored, so the UI can say "cached" honestly. */
+export async function cachedKeys(keys: string[]): Promise<Set<string>> {
+  const found = new Set<string>();
+  try {
+    const db = await open();
+    await Promise.all(keys.map(k => new Promise<void>(resolve => {
+      const req = db.transaction(STORE, "readonly").objectStore(STORE).count(k);
+      req.onsuccess = () => { if (req.result > 0) found.add(k); resolve(); };
+      req.onerror = () => resolve();
+    })));
+  } catch {
+    // no storage available, so nothing is cached
+  }
+  return found;
+}

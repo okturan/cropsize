@@ -70,6 +70,21 @@ export function artifactSize(quality: Quality, name: string): number {
   return size;
 }
 
+/** The four files one quality and precision needs: two graphs, two weight sidecars. */
+export function artifactNames(quality: Quality, precision: Precision): string[] {
+  const suffix = precision === "fp16" ? "_fp16" : "";
+  return [
+    `vision_encoder${suffix}.onnx`,
+    `vision_encoder${suffix}.onnx_data`,
+    `prompt_encoder_mask_decoder${suffix}.onnx`,
+    `prompt_encoder_mask_decoder${suffix}.onnx_data`,
+  ];
+}
+
+export function revision(quality: Quality): string {
+  return MODELS[quality].revision;
+}
+
 /** Total first-visit download, for the UI to state before it starts. */
 export function downloadBytes(quality: Quality, precision: Precision): number {
   const suffix = precision === "fp16" ? "_fp16" : "";

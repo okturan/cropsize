@@ -5,8 +5,9 @@
 import { Sam } from "./lib/sam";
 import { detect, type Box } from "./lib/detect";
 import { loadFile, loadSample, type Scan } from "./lib/source";
+import { estimateSkew, rotate } from "./lib/deskew";
 import {
-  cropCanvas, exportPdf, measure, plan,
+  cropCanvas, exportPdf, measure, plan, trimToMask,
   type Fit, type Layout, type PresetName, type SheetName,
 } from "./lib/sheet";
 import { downloadBytes } from "./lib/constants";
@@ -17,10 +18,16 @@ const ctx = cv.getContext("2d")!;
 const sam = new Sam("tiny", "fp16");
 
 const S: {
-  scan: Scan | null;
+  scan: Scan | null;                 // the working frame, already straightened
+  original: ImageData | null;        // before straightening, so the slider can redo it
+  skew: number;
+  mask: { mask: Float32Array; size: number } | null;
   box: Box;
   drag: null | { kind: "move" | "handle"; i: number; ox: number; oy: number };
-} = { scan: null, box: { x0: 0.05, y0: 0.05, x1: 0.95, y1: 0.95 }, drag: null };
+} = {
+  scan: null, original: null, skew: 0, mask: null,
+  box: { x0: 0.05, y0: 0.05, x1: 0.95, y1: 0.95 }, drag: null,
+};
 
 const layout = (): Layout => ({
   sheet: $<HTMLSelectElement>("sheet").value as SheetName,
@@ -28,7 +35,34 @@ const layout = (): Layout => ({
   fit: (document.querySelector('input[name="fit"]:checked') as HTMLInputElement).value as Fit,
   preset: $<HTMLSelectElement>("preset").value as PresetName,
   marginMm: parseFloat($<HTMLInputElement>("margin").value) || 0,
+  trim: $<HTMLInputElement>("trim").checked ? S.mask : null,
 });
+
+/* ------------------------------------------------------------------- status */
+const MB = (n: number) => `${Math.round(n / 1048576)} MB`;
+const TOTAL = downloadBytes("tiny", "fp16");
+
+/**
+ * The badge used to claim the model was running before anything had been fetched. It now
+ * reports one of four true states: not fetched, downloading with a live figure, cached and
+ * ready, or in use with the backend that actually took the work.
+ */
+function setStatus(text: string, ready = false) {
+  const b = $("engine");
+  b.textContent = text;
+  b.classList.toggle("on", ready);
+}
+
+async function reportModelState() {
+  if (sam.loaded) {
+    setStatus(`SAM 2.1 tiny ready on ${sam.backend === "webgpu" ? "WebGPU" : "WASM"}`, true);
+    return;
+  }
+  const { have, of } = await sam.cached();
+  if (have === of) setStatus(`SAM 2.1 tiny cached, ${MB(TOTAL)}, ready`, true);
+  else if (have > 0) setStatus(`Model partly cached, ${have} of ${of} files`);
+  else setStatus(`Model not downloaded yet, ${MB(TOTAL)} on first use`);
+}
 
 /* ------------------------------------------------------------------ loading */
 function showProgress(on: boolean, label?: string) {
@@ -40,7 +74,18 @@ async function open(loader: () => Promise<Scan>) {
   $("drop").hidden = true;
   showProgress(true, "Reading the scan");
   try {
-    S.scan = await loader();
+    const scan = await loader();
+    S.original = scan.image;
+    $("fileName").textContent = scan.name;
+
+    // Straighten before anything else, the same order the Python build uses, so the crop box
+    // and the measurement both refer to the upright frame.
+    showProgress(true, "Measuring the tilt");
+    S.skew = estimateSkew(scan.image);
+    $<HTMLInputElement>("skew").value = String(S.skew);
+    $("skewOut").textContent = S.skew.toFixed(1);
+    S.scan = { ...scan, image: rotate(scan.image, S.skew) };
+    S.mask = null;
     $("editor").hidden = false;
     $("panel").hidden = false;
     document.body.classList.add("loaded");
@@ -56,24 +101,25 @@ async function open(loader: () => Promise<Scan>) {
   }
 }
 
-let modelLoaded = false;
-
 async function runDetect() {
   if (!S.scan) return;
-  showProgress(true, modelLoaded
-    ? "Looking for the document"
-    : `Downloading the model, about ${Math.round(downloadBytes("tiny", "fp16") / 1048576)} MB, once`);
+  const first = !sam.loaded;
+  showProgress(true, first ? "Getting the model ready" : "Looking for the document");
   try {
     const r = await detect(sam, S.scan.image, p => {
       $<HTMLElement>("fill").style.width = `${Math.round(p.fraction * 100)}%`;
       $("progressNote").textContent = p.status;
+      setStatus(`Downloading the model, ${MB(p.loadedBytes)} of ${MB(TOTAL)}`);
     });
-    modelLoaded = true;
+    if (first) $("progressLabel").textContent = "Looking for the document";
+    S.mask = { mask: r.mask, size: r.maskSize };
     S.box = r.box;
-    $("note").textContent = `Found it. ${r.note}`;
+    $("note").textContent =
+      `Found it. ${r.note}${S.skew ? `, straightened by ${S.skew.toFixed(1)} degrees` : ""}.`;
   } catch (err) {
     $("note").textContent = `Could not find it, so drag the box yourself. ${(err as Error).message}`;
   }
+  await reportModelState();
   showProgress(false);
   draw();
   refreshOutput();
@@ -182,7 +228,8 @@ function refreshOutput() {
       : "this file carries no scale, so it falls back to filling";
 
     // Compose the sheet the same way the export does, so the preview cannot drift from it.
-    const crop = cropCanvas(S.scan.image, S.box);
+    let crop = cropCanvas(S.scan.image, S.box);
+    if (L.trim) crop = trimToMask(crop, S.box, L.trim.mask, L.trim.size);
     const dpi = 110;
     const sheetMm = p.sheetMm
       ?? [p.contentMm[0] + 2 * L.marginMm, p.contentMm[1] + 2 * L.marginMm];
@@ -204,13 +251,33 @@ function refreshOutput() {
 }
 
 /* ------------------------------------------------------------------ controls */
-$("file").addEventListener("change", e => {
-  const f = (e.target as HTMLInputElement).files?.[0];
-  if (f) open(() => loadFile(f));
+for (const id of ["file", "file2"]) {
+  $(id).addEventListener("change", e => {
+    const f = (e.target as HTMLInputElement).files?.[0];
+    if (f) open(() => loadFile(f));
+  });
+}
+$("startOver").addEventListener("click", () => location.reload());
+
+// Redo the straightening by hand. Detection ran against the old angle, so say so rather
+// than leaving a stale box looking authoritative.
+let skewTimer: number | undefined;
+$("skew").addEventListener("input", e => {
+  S.skew = parseFloat((e.target as HTMLInputElement).value);
+  $("skewOut").textContent = S.skew.toFixed(1);
+  clearTimeout(skewTimer);
+  skewTimer = window.setTimeout(() => {
+    if (!S.scan || !S.original) return;
+    S.scan = { ...S.scan, image: rotate(S.original, S.skew) };
+    S.mask = null;
+    $("note").textContent = "Straightened by hand. Detect again to refit the box.";
+    draw();
+    refreshOutput();
+  }, 200);
 });
+$("trim").addEventListener("change", refreshOutput);
 $("sample").addEventListener("click", () => open(loadSample));
 $("redetect").addEventListener("click", runDetect);
-$("reset").addEventListener("click", () => location.reload());
 
 const drop = $("drop");
 for (const e of ["dragenter", "dragover"] as const) {
@@ -258,7 +325,7 @@ addEventListener("resize", () => {
   resizeTimer = window.setTimeout(draw, 120);
 });
 
-$("engine").textContent = "SAM 2.1 tiny, running in this tab";
+void reportModelState();
 if (new URLSearchParams(location.search).get("sample")) {
   addEventListener("DOMContentLoaded", () => $("sample").click());
 }

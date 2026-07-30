@@ -10,6 +10,9 @@ export interface DetectResult {
   box: Box;
   score: number;
   note: string;
+  /** the winning mask, kept so the rounded corners can be trimmed later */
+  mask: Float32Array;
+  maskSize: number;
 }
 
 function maskBounds(mask: Float32Array, size: number): Box | null {
@@ -120,5 +123,7 @@ export async function detect(
     box: snapEdges(img, bounds),
     score: r.score,
     note: `${how}, score ${r.score.toFixed(3)}`,
+    mask: r.mask,
+    maskSize: r.size,
   };
 }

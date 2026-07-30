@@ -19,26 +19,59 @@ async function session(
   quality: Quality, precision: Precision,
   which: "vision_encoder" | "prompt_encoder_mask_decoder",
   onProgress: (p: LoadProgress) => void,
-): Promise<ort.InferenceSession> {
+): Promise<{ session: ort.InferenceSession; backend: string }> {
   const { graph, weights, weightsName } = await loadArtifacts(quality, precision, which, onProgress);
-  return ort.InferenceSession.create(graph, {
-    executionProviders: ["webgpu", "wasm"],
-    // Weights live in a sidecar file; ORT will not discover it on its own.
-    externalData: [{ path: weightsName, data: weights }],
-  });
+  // Weights live in a sidecar file; ORT will not discover it on its own.
+  const externalData = [{ path: weightsName, data: weights }];
+  // WASM first, because it is the path that has actually been measured working end to end.
+  // WebGPU is opt in with ?gpu=1 until it has been verified on real hardware: a WebGPU
+  // session can be created successfully and still fail inside run().
+  const order = typeof location !== "undefined"
+      && new URLSearchParams(location.search).get("gpu") === "1"
+    ? ["webgpu", "wasm"] : ["wasm"];
+  for (const backend of order) {
+    try {
+      const s = await ort.InferenceSession.create(graph, {
+        executionProviders: [backend], externalData,
+      });
+      return { session: s, backend };
+    } catch (err) {
+      if (backend === "wasm") throw err;
+    }
+  }
+  throw new Error("no execution provider available");
 }
 
 export class Sam {
   private encoder?: ort.InferenceSession;
   private decoder?: ort.InferenceSession;
 
+  backend = "";
+
   get loaded(): boolean { return !!(this.encoder && this.decoder); }
 
   constructor(private quality: Quality = "tiny", private precision: Precision = "fp32") {}
 
   async ready(onProgress: (p: LoadProgress) => void): Promise<void> {
-    this.encoder ??= await session(this.quality, this.precision, "vision_encoder", onProgress);
-    this.decoder ??= await session(this.quality, this.precision, "prompt_encoder_mask_decoder", onProgress);
+    if (!this.encoder) {
+      const r = await session(this.quality, this.precision, "vision_encoder", onProgress);
+      this.encoder = r.session;
+      this.backend = r.backend;
+    }
+    if (!this.decoder) {
+      const r = await session(this.quality, this.precision, "prompt_encoder_mask_decoder", onProgress);
+      this.decoder = r.session;
+    }
+  }
+
+  /** Which of the four files are already in the cache. */
+  async cached(): Promise<{ have: number; of: number }> {
+    const { artifactNames } = await import("./constants");
+    const { artifactKey } = await import("./model-loader");
+    const { cachedKeys } = await import("./model-cache");
+    const names = artifactNames(this.quality, this.precision);
+    const found = await cachedKeys(names.map(n => artifactKey(this.quality, n)));
+    return { have: found.size, of: names.length };
   }
 
   /** Letterbox-free resize to 1024x1024 plus ImageNet normalisation, as the export expects. */
