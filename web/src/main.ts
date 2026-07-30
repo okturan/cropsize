@@ -23,7 +23,7 @@ import type { Quality } from "./lib/constants";
 // plus are identical on an easy scan, and base plus is about 2 mm tighter on a passport
 // inside a plastic sleeve, for twice the download and roughly twice the encode time. That is
 // a real trade rather than an obvious win, so it is exposed rather than decided here.
-let quality: Quality = "tiny";
+let quality: Quality = "base-plus";
 let sam = new Sam(quality, "fp16");
 
 const S: {
