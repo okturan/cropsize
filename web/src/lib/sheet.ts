@@ -44,16 +44,29 @@ export function trimToMask(
   const ctx = canvas.getContext("2d")!;
   const img = ctx.getImageData(0, 0, canvas.width, canvas.height);
   const d = img.data;
+  const at = (x: number, y: number) =>
+    mask[Math.min(size - 1, Math.max(0, y)) * size + Math.min(size - 1, Math.max(0, x))] ?? -1;
+
   for (let y = 0; y < canvas.height; y++) {
     // Map back into mask space, which covers the whole source frame.
-    const my = (box.y0 + (y / canvas.height) * (box.y1 - box.y0)) * size;
-    const y0 = Math.min(size - 1, Math.max(0, Math.floor(my)));
+    const my = (box.y0 + (y / canvas.height) * (box.y1 - box.y0)) * size - 0.5;
+    const fy = Math.floor(my), wy = my - fy;
     for (let x = 0; x < canvas.width; x++) {
-      const mx = (box.x0 + (x / canvas.width) * (box.x1 - box.x0)) * size;
-      const x0 = Math.min(size - 1, Math.max(0, Math.floor(mx)));
-      if ((mask[y0 * size + x0] ?? -1) <= 0) {
-        const i = (y * canvas.width + x) * 4;
+      const mx = (box.x0 + (x / canvas.width) * (box.x1 - box.x0)) * size - 0.5;
+      const fx = Math.floor(mx), wx = mx - fx;
+      // Bilinear, so the boundary is a soft edge rather than a staircase of mask pixels,
+      // each one of which is several millimetres across at print size.
+      const v = (at(fx, fy) * (1 - wx) + at(fx + 1, fy) * wx) * (1 - wy)
+              + (at(fx, fy + 1) * (1 - wx) + at(fx + 1, fy + 1) * wx) * wy;
+      if (v >= 0.35) continue;                       // comfortably inside
+      const i = (y * canvas.width + x) * 4;
+      if (v <= -0.35) {                              // comfortably outside
         d[i] = 255; d[i + 1] = 255; d[i + 2] = 255;
+      } else {
+        const a = (v + 0.35) / 0.7;                  // blend across the boundary
+        d[i] = (d[i] ?? 0) * a + 255 * (1 - a);
+        d[i + 1] = (d[i + 1] ?? 0) * a + 255 * (1 - a);
+        d[i + 2] = (d[i + 2] ?? 0) * a + 255 * (1 - a);
       }
     }
   }
