@@ -2,7 +2,8 @@
 
 Crop a scan, straighten it, and print it at its real physical size.
 
-Live: **[cropsize.pages.dev](https://cropsize.pages.dev)**
+Live: **[cropsize.pages.dev](https://cropsize.pages.dev)** runs in your browser, no install,
+no upload. The model downloads once, about 78 MB, and is cached after that.
 
 ![The cropsize editor](docs/editor.png)
 
@@ -39,7 +40,14 @@ clears those corners to white.
 
 ![Exported at true size on A4](docs/output.png)
 
-## Try it in 30 seconds
+## Two ways to run it
+
+**In the browser.** Open [cropsize.pages.dev](https://cropsize.pages.dev) and click
+**Try the sample**. SAM 2.1 tiny runs in the tab itself, on WebGPU where you have it and on
+WASM where you do not. Your scan is read by the page and never sent anywhere, because there
+is no server to send it to.
+
+**Locally, in 30 seconds**
 
 ```bash
 git clone https://github.com/okturan/cropsize.git
@@ -120,8 +128,8 @@ pipeline.py       loading, transforms, deskew, tone, page layout
 sam_backend.py    Segment Anything 2, imported only if installed
 static/           the editor, plain JavaScript and a canvas
 tests/            15 tests, no model needed
-web/              browser build, see web/PORT.md
-site/             the landing page, deploy with ./deploy-site.sh
+web/              the browser build, deployed to cropsize.pages.dev
+site/             an older static landing page, kept for reference
 ```
 
 Python with FastAPI, OpenCV and PyMuPDF. The model is SAM 2.1 running on Metal, CUDA or CPU,

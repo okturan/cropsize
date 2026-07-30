@@ -3,7 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>cropsize — crop scans onto real-size pages</title>
+<title>cropsize, crop a scan and print it at its real size</title>
+<link rel="stylesheet" href="/src/style.css">
 <!-- ONNX Runtime Web from CDN rather than bundled: its threaded WASM binary is 26.8 MB and
      Cloudflare Pages rejects any file over 25 MiB. Pinned with Subresource Integrity. -->
 <script
@@ -14,9 +15,92 @@
 ></script>
 </head>
 <body>
-  <main id="app">
-    <noscript>cropsize runs entirely in your browser and needs JavaScript.</noscript>
-  </main>
-  <script type="module" src="/src/main.ts"></script>
+<header>
+  <h1>cropsize</h1>
+  <p class="tag">Crop a scan and print it at its real size.</p>
+  <span id="engine" class="badge">starting up</span>
+</header>
+
+<main>
+  <section id="stage">
+    <div id="drop" class="drop">
+      <p><strong>Drop a PDF or an image here</strong></p>
+      <p class="muted">or <label class="link">choose a file<input type="file" id="file"
+        accept=".pdf,.png,.jpg,.jpeg,.webp" hidden></label></p>
+      <p class="muted small">Everything runs in this tab. Nothing you open is uploaded anywhere.</p>
+      <p class="muted small">No scan handy? <button id="sample" class="linkBtn">Try the sample</button></p>
+      <p id="dropError" class="warn" hidden></p>
+    </div>
+
+    <div id="editor" hidden>
+      <div class="bar">
+        <button id="redetect">Detect again</button>
+        <span id="note" class="note"></span>
+      </div>
+      <div class="canvasWrap"><canvas id="canvas"></canvas></div>
+      <p class="hint">Drag inside the box to move it, drag a corner to resize, double click to reset.</p>
+    </div>
+
+    <div id="progress" hidden>
+      <p id="progressLabel" class="muted">Loading the model</p>
+      <div class="track"><div id="fill" class="fill"></div></div>
+      <p id="progressNote" class="muted small"></p>
+    </div>
+  </section>
+
+  <aside id="panel" hidden>
+    <section class="group">
+      <h2>Output</h2>
+      <div class="sheetWrap"><img id="sheetImg" alt="preview of the page you will get"></div>
+      <dl class="facts">
+        <dt>On the scan</dt><dd id="factScan">, </dd>
+        <dt>On the page</dt><dd id="factOut">, </dd>
+        <dt>Sheet</dt><dd id="factSheet">, </dd>
+      </dl>
+      <p id="scaleNote" class="note"></p>
+    </section>
+
+    <section class="group">
+      <h2>How big should it print?</h2>
+      <div class="choices">
+        <label class="choice"><input type="radio" name="fit" value="true" checked>
+          <span><span class="ct">Keep real size</span><span class="cs" id="fitTrueSub">measured from the scan</span></span></label>
+        <label class="choice"><input type="radio" name="fit" value="preset">
+          <span><span class="ct">Scale to a known size</span><span class="cs">force an exact size</span></span></label>
+        <label class="choice"><input type="radio" name="fit" value="fill">
+          <span><span class="ct">Fill the sheet</span><span class="cs">as big as the margins allow, not to scale</span></span></label>
+      </div>
+      <div id="presetBox" class="subBox" hidden>
+        <select id="preset">
+          <option value="passport-spread">Passport spread, 125 by 176 mm</option>
+          <option value="passport-page">Passport page, 125 by 88 mm</option>
+          <option value="id-card">ID or bank card, 85.6 by 54 mm</option>
+        </select>
+      </div>
+    </section>
+
+    <section class="group">
+      <h2>Sheet</h2>
+      <div class="field"><label for="sheet">Paper</label>
+        <select id="sheet">
+          <option value="a4" selected>A4, 210 by 297 mm</option>
+          <option value="a3">A3, 297 by 420 mm</option>
+          <option value="a5">A5, 148 by 210 mm</option>
+          <option value="letter">Letter, 216 by 279 mm</option>
+          <option value="legal">Legal, 216 by 356 mm</option>
+          <option value="none">No sheet, just the crop</option>
+        </select></div>
+      <div class="field"><label for="margin">Margin</label>
+        <span class="unit"><input type="number" id="margin" value="8" min="0" max="40" step="1"> mm</span></div>
+      <label class="check"><input type="checkbox" id="landscape"> landscape</label>
+    </section>
+
+    <section class="group">
+      <button id="download" class="primary">Download the PDF</button>
+      <button id="reset" class="ghost">Start over</button>
+    </section>
+  </aside>
+</main>
+<script type="module" src="/src/main.ts"></script>
 </body>
 </html>

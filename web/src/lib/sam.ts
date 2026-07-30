@@ -32,6 +32,8 @@ export class Sam {
   private encoder?: ort.InferenceSession;
   private decoder?: ort.InferenceSession;
 
+  get loaded(): boolean { return !!(this.encoder && this.decoder); }
+
   constructor(private quality: Quality = "tiny", private precision: Precision = "fp32") {}
 
   async ready(onProgress: (p: LoadProgress) => void): Promise<void> {

@@ -19,3 +19,7 @@ declare namespace ort {
     run(feeds: Record<string, Tensor>): Promise<RunResult>;
   }
 }
+
+declare module "pdfjs-dist/build/pdf.worker.min.mjs" {
+  export const WorkerMessageHandler: unknown;
+}

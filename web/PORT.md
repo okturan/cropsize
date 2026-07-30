@@ -36,10 +36,10 @@ Two constraints found by building it rather than by reading docs:
    own — it must be passed via the session's `externalData` option — and tinyvoice's
    `/\.onnx$/` filename allowlist rejects it outright.
 
-## Not done — the imaging pipeline
+## Done since: the app itself
 
-This is the bulk of the work: `pipeline.py` is ~680 lines of OpenCV that has no browser
-equivalent yet.
+The browser build now loads a scan, detects, measures, lays out and exports on its own. What
+moved across, and what is still only in the Python build:
 
 | Python | Browser | Notes |
 |---|---|---|

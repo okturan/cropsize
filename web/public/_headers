@@ -3,6 +3,8 @@
 # silently falls back to single-threaded and the encoder takes several times longer.
 /*
   Cross-Origin-Opener-Policy: same-origin
-  Cross-Origin-Embedder-Policy: require-corp
+  # credentialless rather than require-corp: it still unlocks threaded WASM in Chrome while
+  # letting the model download from Hugging Face without needing a CORP header from them.
+  Cross-Origin-Embedder-Policy: credentialless
   X-Content-Type-Options: nosniff
   Referrer-Policy: no-referrer

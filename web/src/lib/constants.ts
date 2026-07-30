@@ -52,6 +52,13 @@ export const MODELS: Readonly<Record<Quality, ModelSpec>> = {
 } as const;
 
 export function modelBase(quality: Quality): string {
+  // ?models=local serves the weights from this origin instead of Hugging Face, which is how
+  // the app gets exercised offline and in automated capture, where a cross origin fetch of
+  // 78 MB does not settle.
+  if (typeof location !== "undefined"
+      && new URLSearchParams(location.search).get("models") === "local") {
+    return new URL("models/", location.href).toString();
+  }
   const { repo, revision } = MODELS[quality];
   return `https://huggingface.co/${repo}/resolve/${revision}/onnx/`;
 }
