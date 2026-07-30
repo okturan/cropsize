@@ -101,6 +101,22 @@ which is 125 by 176 millimetres by international standard.
 | ID card on a flatbed | 85.6 by 53.9 mm | 0.0 and 0.1 mm |
 | Sample document | 104.9 by 147.9 mm | 0.1 and 0.1 mm |
 
+### Does the model size matter
+
+Only on the awkward scans. Both sizes measured on the same straightened input, against a
+true 125 by 176 mm spread and a 105 by 148 mm sample:
+
+| Scan | tiny, 78 MB | base plus, 163 MB |
+| --- | --- | --- |
+| Sample document | 104.9 by 147.9 mm | 104.9 by 147.9 mm |
+| Passport on white | 126.1 by 177.5 mm | 126.1 by 176.7 mm |
+| Passport in a sleeve | 129.5 by 176.8 mm | 127.2 by 174.9 mm |
+
+Identical on the easy one, and base plus is about 2 mm tighter where the document sits inside
+a plastic sleeve, which is the case that has no contrast to work with. It costs twice the
+download and roughly twice the encode time, 1.9 s against 0.9 s on plain CPU. The browser
+build lets you switch between them in the toolbar and defaults to tiny.
+
 Resolution does not change the measurement. The same content scanned at 150, 300, 600 and
 1200 dpi measures the same to within a fraction of a millimetre, because a PDF has no dpi of
 its own and the page geometry is what carries the size.

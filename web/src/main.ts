@@ -17,7 +17,14 @@ import Split from "split.js";
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
 const cv = $<HTMLCanvasElement>("canvas");
 const ctx = cv.getContext("2d")!;
-const sam = new Sam("tiny", "fp16");
+import type { Quality } from "./lib/constants";
+
+// Which size to run. Measured against a true 125 by 176 mm passport spread, tiny and base
+// plus are identical on an easy scan, and base plus is about 2 mm tighter on a passport
+// inside a plastic sleeve, for twice the download and roughly twice the encode time. That is
+// a real trade rather than an obvious win, so it is exposed rather than decided here.
+let quality: Quality = "tiny";
+let sam = new Sam(quality, "fp16");
 
 const S: {
   scan: Scan | null;                 // the working frame, straightened, untoned
@@ -58,7 +65,7 @@ function initSplit() {
 
 /* ------------------------------------------------------------------- status */
 const MB = (n: number) => `${Math.round(n / 1048576)} MB`;
-const TOTAL = downloadBytes("tiny", "fp16");
+const total = () => downloadBytes(quality, "fp16");
 
 /**
  * The badge used to claim the model was running before anything had been fetched. It now
@@ -72,14 +79,15 @@ function setStatus(text: string, ready = false) {
 }
 
 async function reportModelState() {
+  const label = `SAM 2.1 ${quality === "tiny" ? "tiny" : "base plus"}`;
   if (sam.loaded) {
-    setStatus(`SAM 2.1 tiny ready on ${sam.backend === "webgpu" ? "WebGPU" : "WASM"}`, true);
+    setStatus(`${label} ready on ${sam.backend === "webgpu" ? "WebGPU" : "WASM"}`, true);
     return;
   }
   const { have, of } = await sam.cached();
-  if (have === of) setStatus(`SAM 2.1 tiny cached, ${MB(TOTAL)}, ready`, true);
-  else if (have > 0) setStatus(`Model partly cached, ${have} of ${of} files`);
-  else setStatus(`Model not downloaded yet, ${MB(TOTAL)} on first use`);
+  if (have === of) setStatus(`${label} cached, ${MB(total())}, ready`, true);
+  else if (have > 0) setStatus(`${label} partly cached, ${have} of ${of} files`);
+  else setStatus(`${label} not downloaded yet, ${MB(total())} on first use`);
 }
 
 /* ------------------------------------------------------------------ loading */
@@ -129,7 +137,7 @@ async function runDetect() {
     const r = await detect(sam, S.scan.image, p => {
       $<HTMLElement>("fill").style.width = `${Math.round(p.fraction * 100)}%`;
       $("progressNote").textContent = p.status;
-      setStatus(`Downloading the model, ${MB(p.loadedBytes)} of ${MB(TOTAL)}`);
+      setStatus(`Downloading, ${MB(p.loadedBytes)} of ${MB(total())}`);
     });
     if (first) $("progressLabel").textContent = "Looking for the document";
     S.mask = { mask: r.mask, size: r.maskSize };
@@ -293,6 +301,13 @@ for (const id of ["file", "file2"]) {
   });
 }
 $("startOver").addEventListener("click", () => location.reload());
+
+$("model").addEventListener("change", async e => {
+  quality = (e.target as HTMLSelectElement).value as Quality;
+  sam = new Sam(quality, "fp16");          // a session is tied to its weights
+  await reportModelState();
+  if (S.scan) await runDetect();
+});
 
 // Redo the straightening by hand. Detection ran against the old angle, so say so rather
 // than leaving a stale box looking authoritative.

@@ -427,3 +427,6 @@ body { overflow-x: hidden; }
   .gutter { display: none; }
   .settings #download { margin-left: 0; width: 100%; }
 }
+
+.inlineField { display: flex; align-items: center; gap: 7px; font-size: 13px; color: var(--muted); }
+.inlineField select { font-size: 13px; padding: 5px 8px; }
