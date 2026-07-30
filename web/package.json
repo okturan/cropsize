@@ -3,7 +3,9 @@
   "private": true,
   "version": "0.1.0",
   "type": "module",
-  "engines": { "node": ">=22" },
+  "engines": {
+    "node": ">=22"
+  },
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
@@ -12,10 +14,11 @@
     "deploy": "npm run build && wrangler pages deploy dist --project-name cropsize-app"
   },
   "dependencies": {
+    "@techstark/opencv-js": "^5.0.0-release.1",
     "onnxruntime-web": "^1.27.0",
     "pdf-lib": "^1.17.1",
     "pdfjs-dist": "^6.2.108",
-    "@techstark/opencv-js": "^5.0.0-release.1"
+    "split.js": "^1.6.5"
   },
   "devDependencies": {
     "typescript": "^5.9.0",

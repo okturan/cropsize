@@ -43,9 +43,11 @@ clears those corners to white.
 ## Two ways to run it
 
 **In the browser.** Open [cropsize.pages.dev](https://cropsize.pages.dev) and click
-**Try the sample**. SAM 2.1 tiny runs in the tab itself, on WebGPU where you have it and on
-WASM where you do not. Your scan is read by the page and never sent anywhere, because there
-is no server to send it to.
+**Try the sample**. SAM 2.1 tiny runs in the tab itself on WASM, and your scan is read by the
+page rather than sent anywhere, because there is no server to send it to. The scan and the
+finished page sit side by side in one split view so you can compare them, with the sizes and
+the sheet controls in a single strip underneath. WebGPU is behind `?gpu=1` until it has been
+verified on real hardware.
 
 **Locally, in 30 seconds**
 

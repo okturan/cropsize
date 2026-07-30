@@ -6,11 +6,13 @@ import { Sam } from "./lib/sam";
 import { detect, type Box } from "./lib/detect";
 import { loadFile, loadSample, type Scan } from "./lib/source";
 import { estimateSkew, rotate } from "./lib/deskew";
+import { applyTone } from "./lib/tone";
 import {
   cropCanvas, exportPdf, measure, plan, trimToMask,
   type Fit, type Layout, type PresetName, type SheetName,
 } from "./lib/sheet";
 import { downloadBytes } from "./lib/constants";
+import Split from "split.js";
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
 const cv = $<HTMLCanvasElement>("canvas");
@@ -18,25 +20,41 @@ const ctx = cv.getContext("2d")!;
 const sam = new Sam("tiny", "fp16");
 
 const S: {
-  scan: Scan | null;                 // the working frame, already straightened
+  scan: Scan | null;                 // the working frame, straightened, untoned
+  toned: ImageData | null;           // the same frame with contrast applied, for output
   original: ImageData | null;        // before straightening, so the slider can redo it
   skew: number;
   mask: { mask: Float32Array; size: number } | null;
   box: Box;
   drag: null | { kind: "move" | "handle"; i: number; ox: number; oy: number };
 } = {
-  scan: null, original: null, skew: 0, mask: null,
+  scan: null, toned: null, original: null, skew: 0, mask: null,
   box: { x0: 0.05, y0: 0.05, x1: 0.95, y1: 0.95 }, drag: null,
 };
+
+let currentFit: Fit = "true";
 
 const layout = (): Layout => ({
   sheet: $<HTMLSelectElement>("sheet").value as SheetName,
   landscape: $<HTMLInputElement>("landscape").checked,
-  fit: (document.querySelector('input[name="fit"]:checked') as HTMLInputElement).value as Fit,
+  fit: currentFit,
   preset: $<HTMLSelectElement>("preset").value as PresetName,
   marginMm: parseFloat($<HTMLInputElement>("margin").value) || 0,
   trim: $<HTMLInputElement>("trim").checked ? S.mask : null,
 });
+
+/* -------------------------------------------------------------------- split */
+let split: ReturnType<typeof Split> | null = null;
+
+/** Split.js rather than a hand rolled drag: it handles the gutter, the sizing maths and the
+ *  keyboard, and it is 2 kB. Redraw on drag because the canvas is sized in pixels. */
+function initSplit() {
+  if (split) return;
+  split = Split(["#paneIn", "#paneOut"], {
+    sizes: [50, 50], minSize: 260, gutterSize: 14, snapOffset: 0,
+    onDrag: () => { draw(); },
+  });
+}
 
 /* ------------------------------------------------------------------- status */
 const MB = (n: number) => `${Math.round(n / 1048576)} MB`;
@@ -86,16 +104,18 @@ async function open(loader: () => Promise<Scan>) {
     $("skewOut").textContent = S.skew.toFixed(1);
     S.scan = { ...scan, image: rotate(scan.image, S.skew) };
     S.mask = null;
-    $("editor").hidden = false;
-    $("panel").hidden = false;
-    document.body.classList.add("loaded");
+    retone();
+    $("app").hidden = false;
+    $("start").hidden = true;
+    initSplit();
+    retone();
     draw();
     await runDetect();
   } catch (err) {
     // Inline rather than alert(): a modal blocks the page, which hides the actual failure
     // and stops any automated capture dead.
     showProgress(false);
-    $("drop").hidden = false;
+    $("start").hidden = false;
     $("dropError").textContent = `Could not open that. ${(err as Error).message}`;
     $("dropError").hidden = false;
   }
@@ -131,8 +151,9 @@ const HANDLE = 9;
 function draw() {
   if (!S.scan) return;
   const img = S.scan.image;
-  const maxW = cv.parentElement!.clientWidth - 24;
-  const maxH = Math.max(260, window.innerHeight * 0.68);
+  const pane = cv.parentElement!;
+  const maxW = Math.max(120, pane.clientWidth - 24);
+  const maxH = Math.max(120, pane.clientHeight - 24);
   const scale = Math.min(maxW / img.width, maxH / img.height, 1);
   cv.width = Math.round(img.width * scale);
   cv.height = Math.round(img.height * scale);
@@ -209,6 +230,20 @@ cv.addEventListener("dblclick", () => {
   refreshOutput();
 });
 
+/**
+ * Contrast is applied to the whole straightened frame, not to the crop, so the percentiles
+ * behind the white point are taken from the whole page. That matches the Python build, and it
+ * stops the tone shifting every time you nudge the crop box.
+ */
+function retone() {
+  if (!S.scan) return;
+  const clip = parseFloat($<HTMLInputElement>("clahe").value) || 0;
+  const stretch = $<HTMLInputElement>("stretch").checked;
+  S.toned = (clip > 0 || stretch) ? applyTone(S.scan.image, clip, stretch) : null;
+}
+
+const outputImage = () => S.toned ?? S.scan!.image;
+
 /* ------------------------------------------------------------------- output */
 let outTimer: number | undefined;
 function refreshOutput() {
@@ -223,12 +258,12 @@ function refreshOutput() {
     $("factOut").textContent = `${p.contentMm[0]} by ${p.contentMm[1]} mm`;
     $("factSheet").textContent = p.sheetMm ? `${p.sheetMm[0]} by ${p.sheetMm[1]} mm` : "no sheet";
     $("scaleNote").textContent = `${p.note}. ${S.scan.origin}.`;
-    $("fitTrueSub").textContent = m
-      ? `print it at ${m[0]} by ${m[1]} mm`
-      : "this file carries no scale, so it falls back to filling";
+    $("sheetChip").textContent = p.sheetMm
+      ? `${p.contentMm[0]} by ${p.contentMm[1]} mm on ${p.sheetMm[0]} by ${p.sheetMm[1]}`
+      : `${p.contentMm[0]} by ${p.contentMm[1]} mm`;
 
     // Compose the sheet the same way the export does, so the preview cannot drift from it.
-    let crop = cropCanvas(S.scan.image, S.box);
+    let crop = cropCanvas(outputImage(), S.box);
     if (L.trim) crop = trimToMask(crop, S.box, L.trim.mask, L.trim.size);
     const dpi = 110;
     const sheetMm = p.sheetMm
@@ -270,12 +305,23 @@ $("skew").addEventListener("input", e => {
     if (!S.scan || !S.original) return;
     S.scan = { ...S.scan, image: rotate(S.original, S.skew) };
     S.mask = null;
+    retone();
     $("note").textContent = "Straightened by hand. Detect again to refit the box.";
     draw();
     refreshOutput();
   }, 200);
 });
 $("trim").addEventListener("change", refreshOutput);
+
+let toneTimer: number | undefined;
+for (const id of ["clahe", "stretch"]) {
+  $(id).addEventListener("input", () => {
+    const v = parseFloat($<HTMLInputElement>("clahe").value);
+    $("claheOut").textContent = v > 0 ? v.toFixed(1) : "off";
+    clearTimeout(toneTimer);
+    toneTimer = window.setTimeout(() => { retone(); refreshOutput(); }, 200);
+  });
+}
 $("sample").addEventListener("click", () => open(loadSample));
 $("redetect").addEventListener("click", runDetect);
 
@@ -292,9 +338,12 @@ drop.addEventListener("drop", ev => {
   if (f) open(() => loadFile(f));
 });
 
-document.querySelectorAll('input[name="fit"]').forEach(el =>
-  el.addEventListener("change", () => {
-    $("presetBox").hidden = layout().fit !== "preset";
+document.querySelectorAll<HTMLButtonElement>(".segBtn").forEach(btn =>
+  btn.addEventListener("click", () => {
+    currentFit = (btn.dataset.fit ?? "true") as Fit;
+    document.querySelectorAll<HTMLButtonElement>(".segBtn").forEach(b =>
+      b.setAttribute("aria-pressed", String(b === btn)));
+    $("preset").hidden = currentFit !== "preset";
     refreshOutput();
   }));
 for (const id of ["sheet", "margin", "landscape", "preset"]) {
@@ -307,7 +356,7 @@ $("download").addEventListener("click", async () => {
   btn.disabled = true;
   btn.textContent = "Writing the PDF";
   try {
-    const blob = await exportPdf(S.scan, S.box, layout());
+    const blob = await exportPdf({ ...S.scan, image: outputImage() }, S.box, layout());
     const a = document.createElement("a");
     a.href = URL.createObjectURL(blob);
     a.download = "cropsize.pdf";

@@ -13,6 +13,10 @@
 const LIMIT = 5;      // degrees either side
 const STEP = 0.1;
 const WORK = 800;     // width the estimate runs at
+// Ignore the outer eighth. A scanner frame, the platen edge and the shadow along it are all
+// axis aligned no matter how the document sits, and they were strong enough to pin the answer
+// at zero on a scan the Python build measures at 1.4 degrees.
+const INSET = 0.08;
 
 function inkPixels(img: ImageData): { xs: Int16Array; ys: Int16Array; w: number; h: number } {
   const scale = Math.min(WORK / img.width, 1);
@@ -42,8 +46,9 @@ function inkPixels(img: ImageData): { xs: Int16Array; ys: Int16Array; w: number;
   }
   const R = 15;                                  // half window, matches the 31 px kernel
   const xs: number[] = [], ys: number[] = [];
-  for (let y = 0; y < h; y++) {
-    for (let x = 0; x < w; x++) {
+  const insetX = Math.round(w * INSET), insetY = Math.round(h * INSET);
+  for (let y = insetY; y < h - insetY; y++) {
+    for (let x = insetX; x < w - insetX; x++) {
       const x0 = Math.max(0, x - R), y0 = Math.max(0, y - R);
       const x1 = Math.min(w, x + R + 1), y1 = Math.min(h, y + R + 1);
       const areaSum = (sum[y1 * (w + 1) + x1] ?? 0) - (sum[y0 * (w + 1) + x1] ?? 0)
@@ -69,13 +74,27 @@ export function estimateSkew(img: ImageData): number {
     hist.fill(0);
     const off = diag / 2 - (w * Math.abs(sin) + h * cos) / 2;
     for (let i = 0; i < xs.length; i++) {
-      const y = Math.round((xs[i] ?? 0) * sin + (ys[i] ?? 0) * cos + off);
-      if (y >= 0 && y < diag) hist[y] = (hist[y] ?? 0) + 1;
+      // -x*sin, matching OpenCV's rotation matrix. With +x*sin the angle came back with the
+      // sign flipped, which straightened the sample twice as far the wrong way.
+      const y = -(xs[i] ?? 0) * sin + (ys[i] ?? 0) * cos + off;
+      // Split each pixel across the two nearest rows. Rounding instead would make zero
+      // degrees the sharpest angle for free, since there every pixel lands dead on a row
+      // while every other angle gets smeared by the rounding. That bias alone was enough to
+      // report no tilt on a scan the Python build measures at 1.4 degrees.
+      const lo = Math.floor(y);
+      const frac = y - lo;
+      if (lo >= 0 && lo < diag) hist[lo] = (hist[lo] ?? 0) + (1 - frac);
+      if (lo + 1 >= 0 && lo + 1 < diag) hist[lo + 1] = (hist[lo + 1] ?? 0) + frac;
     }
+    // Smooth every histogram the same way before scoring. At exactly zero degrees the row
+    // coordinates land on whole numbers, so that one angle would otherwise get a sharper
+    // profile for free and win by default.
     let score = 0;
-    for (let i = 1; i < diag; i++) {
-      const d = (hist[i] ?? 0) - (hist[i - 1] ?? 0);
-      score += d * d;
+    let prev = 0;
+    for (let i = 1; i < diag - 1; i++) {
+      const cur = 0.25 * (hist[i - 1] ?? 0) + 0.5 * (hist[i] ?? 0) + 0.25 * (hist[i + 1] ?? 0);
+      if (i > 1) { const d = cur - prev; score += d * d; }
+      prev = cur;
     }
     if (score > bestScore) { bestScore = score; bestAngle = a; }
   }

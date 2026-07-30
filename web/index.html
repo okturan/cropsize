@@ -5,8 +5,6 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>cropsize, crop a scan and print it at its real size</title>
 <link rel="stylesheet" href="/src/style.css">
-<!-- ONNX Runtime Web from CDN rather than bundled: its threaded WASM binary is 26.8 MB and
-     Cloudflare Pages rejects any file over 25 MiB. Pinned with Subresource Integrity. -->
 <script
   src="https://cdn.jsdelivr.net/npm/onnxruntime-web@1.27.0/dist/ort.min.js"
   integrity="sha384-uEaiZh7//Wy463wyKt2IRGCp/U7xzZL3k9Qd5Nm760KK9EkwN2nPN2DSEELB6WgC"
@@ -21,95 +19,99 @@
   <span id="engine" class="badge" title="where the model is and what it runs on">checking the model</span>
 </header>
 
-<main>
-  <section id="stage">
-    <div id="drop" class="drop">
-      <p><strong>Drop a PDF or an image here</strong></p>
-      <p class="muted">or <label class="link">choose a file<input type="file" id="file"
-        accept=".pdf,.png,.jpg,.jpeg,.webp" hidden></label></p>
-      <p class="muted small">Everything runs in this tab. Nothing you open is uploaded anywhere.</p>
-      <p class="muted small">No scan handy? <button id="sample" class="linkBtn">Try the sample</button></p>
-      <p id="dropError" class="warn" hidden></p>
-    </div>
+<div id="start" class="startWrap">
+  <div id="drop" class="drop">
+    <p><strong>Drop a PDF or an image here</strong></p>
+    <p class="muted">or <label class="link">choose a file<input type="file" id="file"
+      accept=".pdf,.png,.jpg,.jpeg,.webp" hidden></label></p>
+    <p class="muted small">Everything runs in this tab. Nothing you open is uploaded anywhere.</p>
+    <p class="muted small">No scan handy? <button id="sample" class="linkBtn">Try the sample</button></p>
+    <p id="dropError" class="warn" hidden></p>
+  </div>
+</div>
 
-    <div id="editor" hidden>
-      <div class="bar">
-        <span id="fileName" class="fileName"></span>
-        <label class="btnLike">Open another
-          <input type="file" id="file2" accept=".pdf,.png,.jpg,.jpeg,.webp" hidden></label>
-        <button id="redetect">Detect again</button>
-        <button id="startOver">Start over</button>
-        <label class="check" title="clear the corners outside the traced outline">
-          <input type="checkbox" id="trim" checked> trim corners</label>
-        <span class="barRight">
-          <label class="slider inline">Straighten <output id="skewOut">0.0</output>
-            <input type="range" id="skew" min="-5" max="5" step="0.1" value="0"></label>
-        </span>
-      </div>
-      <p id="note" class="note"></p>
-      <div class="canvasWrap"><canvas id="canvas"></canvas></div>
-      <p class="hint">Drag inside the box to move it, drag a corner to resize, double click to reset.</p>
-    </div>
+<div id="progress" class="progressWrap" hidden>
+  <p id="progressLabel" class="muted">Loading the model</p>
+  <div class="track"><div id="fill" class="fill"></div></div>
+  <p id="progressNote" class="muted small"></p>
+</div>
 
-    <div id="progress" hidden>
-      <p id="progressLabel" class="muted">Loading the model</p>
-      <div class="track"><div id="fill" class="fill"></div></div>
-      <p id="progressNote" class="muted small"></p>
-    </div>
-  </section>
+<div id="app" hidden>
+  <div class="toolbar">
+    <span id="fileName" class="fileName"></span>
+    <label class="btnLike">Open another
+      <input type="file" id="file2" accept=".pdf,.png,.jpg,.jpeg,.webp" hidden></label>
+    <button id="redetect">Detect again</button>
+    <button id="startOver">Start over</button>
+    <span class="tbSep"></span>
+    <label class="slider inline" title="rotate to level, measured automatically">Straighten
+      <input type="range" id="skew" min="-5" max="5" step="0.1" value="0">
+      <output id="skewOut">0.0</output></label>
+    <label class="check" title="clear the corners outside the traced outline">
+      <input type="checkbox" id="trim" checked> trim corners</label>
+    <span id="note" class="note tbNote"></span>
+  </div>
 
-  <aside id="panel" hidden>
-    <section class="group">
-      <h2>Output</h2>
-      <div class="sheetWrap"><img id="sheetImg" alt="preview of the page you will get"></div>
-      <dl class="facts">
-        <dt>On the scan</dt><dd id="factScan">, </dd>
-        <dt>On the page</dt><dd id="factOut">, </dd>
-        <dt>Sheet</dt><dd id="factSheet">, </dd>
-      </dl>
-      <p id="scaleNote" class="note"></p>
+  <div class="split" id="split">
+    <section class="pane" id="paneIn">
+      <div class="paneHead"><h2>Scan</h2>
+        <span class="paneHint">drag the box, drag a corner, double click to reset</span></div>
+      <div class="paneBody"><canvas id="canvas"></canvas></div>
     </section>
-
-    <section class="group">
-      <h2>How big should it print?</h2>
-      <div class="choices">
-        <label class="choice"><input type="radio" name="fit" value="true" checked>
-          <span><span class="ct">Keep real size</span><span class="cs" id="fitTrueSub">measured from the scan</span></span></label>
-        <label class="choice"><input type="radio" name="fit" value="preset">
-          <span><span class="ct">Scale to a known size</span><span class="cs">force an exact size</span></span></label>
-        <label class="choice"><input type="radio" name="fit" value="fill">
-          <span><span class="ct">Fill the sheet</span><span class="cs">as big as the margins allow, not to scale</span></span></label>
-      </div>
-      <div id="presetBox" class="subBox" hidden>
-        <select id="preset">
-          <option value="passport-spread">Passport spread, 125 by 176 mm</option>
-          <option value="passport-page">Passport page, 125 by 88 mm</option>
-          <option value="id-card">ID or bank card, 85.6 by 54 mm</option>
-        </select>
-      </div>
+    <section class="pane" id="paneOut">
+      <div class="paneHead"><h2>What you will get</h2>
+        <span id="sheetChip" class="chip"></span></div>
+      <div class="paneBody sheetBody"><img id="sheetImg" alt="the page you will get"></div>
     </section>
+  </div>
 
-    <section class="group">
-      <h2>Sheet</h2>
-      <div class="field"><label for="sheet">Paper</label>
-        <select id="sheet">
-          <option value="a4" selected>A4, 210 by 297 mm</option>
-          <option value="a3">A3, 297 by 420 mm</option>
-          <option value="a5">A5, 148 by 210 mm</option>
-          <option value="letter">Letter, 216 by 279 mm</option>
-          <option value="legal">Legal, 216 by 356 mm</option>
-          <option value="none">No sheet, just the crop</option>
-        </select></div>
-      <div class="field"><label for="margin">Margin</label>
-        <span class="unit"><input type="number" id="margin" value="8" min="0" max="40" step="1"> mm</span></div>
+  <div class="settings">
+    <div class="setGroup">
+      <span class="setLabel">Print it</span>
+      <div class="segBar" role="group">
+        <button class="segBtn" data-fit="true" aria-pressed="true">Real size</button>
+        <button class="segBtn" data-fit="preset" aria-pressed="false">Known size</button>
+        <button class="segBtn" data-fit="fill" aria-pressed="false">Fill sheet</button>
+      </div>
+      <select id="preset" hidden>
+        <option value="passport-spread">Passport spread, 125 by 176 mm</option>
+        <option value="passport-page">Passport page, 125 by 88 mm</option>
+        <option value="id-card">ID or bank card, 85.6 by 54 mm</option>
+      </select>
+    </div>
+
+    <div class="setGroup">
+      <span class="setLabel">Contrast</span>
+      <label class="slider inline" title="local contrast, off by default so the export is the scan">
+        <input type="range" id="clahe" min="0" max="3" step="0.1" value="0">
+        <output id="claheOut">off</output></label>
+      <label class="check"><input type="checkbox" id="stretch"> white point</label>
+    </div>
+
+    <div class="setGroup">
+      <span class="setLabel">Sheet</span>
+      <select id="sheet">
+        <option value="a4" selected>A4</option>
+        <option value="a3">A3</option>
+        <option value="a5">A5</option>
+        <option value="letter">Letter</option>
+        <option value="legal">Legal</option>
+        <option value="none">No sheet</option>
+      </select>
       <label class="check"><input type="checkbox" id="landscape"> landscape</label>
-    </section>
+      <span class="unit"><input type="number" id="margin" value="8" min="0" max="40" step="1"> mm margin</span>
+    </div>
 
-    <section class="group">
-      <button id="download" class="primary">Download the PDF</button>
-    </section>
-  </aside>
-</main>
+    <div class="setGroup readout">
+      <span><span class="rk">on the scan</span><span id="factScan" class="rv">, </span></span>
+      <span><span class="rk">printed</span><span id="factOut" class="rv">, </span></span>
+      <span><span class="rk">sheet</span><span id="factSheet" class="rv">, </span></span>
+    </div>
+
+    <button id="download" class="primary">Download the PDF</button>
+  </div>
+  <p id="scaleNote" class="note footNote"></p>
+</div>
 <script type="module" src="/src/main.ts"></script>
 </body>
 </html>

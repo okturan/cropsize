@@ -320,3 +320,110 @@ aside { min-width: 0; overflow: hidden; }
 .slider.inline { margin: 0; display: flex; align-items: center; gap: 8px; }
 .slider.inline input { width: 130px; margin: 0; }
 .slider.inline output { float: none; }
+
+/* [hidden] is only a UA rule, so any author `display` beats it. Every element here that gets
+   hidden has one, which left the start screen and the app both rendered at the same time.
+   One blunt rule rather than remembering it per selector. */
+[hidden] { display: none !important; }
+
+/* ── split layout ────────────────────────────────────────────────────────────
+   One row, halved, with a draggable gutter from Split.js rather than a tall side
+   rail. Input and output are the same size because they are the same thing seen
+   before and after, and comparing them is the whole job. */
+body { overflow-x: hidden; }
+.startWrap { display: grid; place-items: center; padding: 8vh 24px; }
+.startWrap .drop { max-width: 620px; width: 100%; }
+/* Fixed, not in the flow. As a block element it pushed the whole split view below the fold
+   while the model downloaded. */
+.progressWrap {
+  position: fixed; z-index: 20; left: 50%; top: 50%; transform: translate(-50%, -50%);
+  width: min(520px, calc(100vw - 48px));
+  background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius);
+  padding: 20px 22px; box-shadow: 0 18px 50px rgba(0,0,0,.22);
+}
+.progressWrap[hidden] { display: none; }
+.progressWrap::before {
+  content: ""; position: fixed; inset: 0; z-index: -1;
+  background: color-mix(in srgb, var(--bg) 62%, transparent);
+}
+
+#app { display: flex; flex-direction: column; height: calc(100vh - 62px); }
+
+.toolbar {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  padding: 10px 20px; border-bottom: 1px solid var(--line); background: var(--panel);
+}
+.tbSep { width: 1px; height: 22px; background: var(--line); }
+.tbNote { margin: 0 0 0 auto; text-align: right; max-width: 46ch; }
+
+.split { flex: 1; display: flex; min-height: 0; padding: 14px 20px; gap: 0; }
+.pane {
+  display: flex; flex-direction: column; min-width: 0; min-height: 0;
+  background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius);
+  overflow: hidden;
+}
+.paneHead {
+  display: flex; align-items: center; gap: 10px; padding: 9px 14px;
+  border-bottom: 1px solid var(--line-soft);
+}
+.paneHead h2 { margin: 0; }
+.paneHint { font-size: 11.5px; color: var(--muted); margin-left: auto; }
+.paneBody {
+  flex: 1; min-height: 0; display: grid; place-items: center;
+  padding: 12px; overflow: auto; background: var(--bg);
+}
+.sheetBody { background: var(--line-soft); }
+#canvas { max-width: 100%; max-height: 100%; touch-action: none; cursor: crosshair; }
+#sheetImg {
+  max-width: 100%; max-height: 100%; display: block;
+  box-shadow: 0 2px 14px rgba(0,0,0,.2); background: #fff;
+}
+/* Until the first preview is composed there is no src, and a bare img shows broken alt text. */
+#sheetImg:not([src]) { display: none; }
+.sheetBody::after {
+  content: "the page appears once the document is found";
+  font-size: 12px; color: var(--muted);
+}
+.sheetBody:has(#sheetImg[src])::after { content: none; }
+.gutter {
+  background: transparent; cursor: col-resize; flex: 0 0 14px; position: relative;
+}
+.gutter::after {
+  content: ""; position: absolute; inset: 0 6px; border-radius: 2px; background: var(--line);
+}
+.gutter:hover::after { background: var(--accent); }
+
+/* ── settings strip ─────────────────────────────────────────────────────── */
+.settings {
+  display: flex; align-items: center; gap: 18px; flex-wrap: wrap;
+  padding: 11px 20px; border-top: 1px solid var(--line); background: var(--panel);
+}
+.setGroup { display: flex; align-items: center; gap: 9px; }
+.setLabel { font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
+/* segBar, not seg: the stylesheet carried over from the Python build already has a .seg for
+   its mode switch, and that one sets flex-direction: column, which stacked these vertically. */
+.segBar { display: inline-flex; }
+.segBtn { border-radius: 0; font-size: 13px; padding: 6px 11px; white-space: nowrap; }
+.segBtn:first-child { border-radius: 8px 0 0 8px; }
+.segBtn:last-child { border-radius: 0 8px 8px 0; }
+.segBtn + .segBtn { margin-left: -1px; }
+.segBtn[aria-pressed="true"] {
+  background: var(--accent); color: var(--accent-ink); border-color: var(--accent);
+  position: relative; z-index: 1; font-weight: 600;
+}
+.settings select, .settings input[type=number] { font-size: 13px; padding: 6px 9px; }
+.settings .unit { font-size: 12.5px; color: var(--muted); display: flex; align-items: center; gap: 6px; }
+.settings #download { margin-left: auto; }
+.readout { gap: 16px; font-size: 12.5px; }
+.readout > span { display: flex; flex-direction: column; line-height: 1.25; }
+.rk { font-size: 10.5px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); }
+.rv { font-variant-numeric: tabular-nums; }
+.footNote { padding: 0 20px 12px; margin: 0; }
+
+@media (max-width: 900px) {
+  #app { height: auto; }
+  .split { flex-direction: column; height: auto; }
+  .pane { min-height: 52vh; }
+  .gutter { display: none; }
+  .settings #download { margin-left: 0; width: 100%; }
+}
