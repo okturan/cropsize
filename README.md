@@ -3,7 +3,8 @@
 Crop a scan, straighten it, and print it at its real physical size.
 
 Live: **[cropsize.pages.dev](https://cropsize.pages.dev)** runs in your browser, no install,
-no upload. The model downloads once, about 78 MB, and is cached after that.
+no upload. The default base-plus model downloads once, about 163 MB, and is cached after
+that. A 78 MB tiny model is available from the toolbar.
 
 ![The cropsize editor](docs/editor.png)
 
@@ -43,11 +44,11 @@ clears those corners to white.
 ## Two ways to run it
 
 **In the browser.** Open [cropsize.pages.dev](https://cropsize.pages.dev) and click
-**Try the sample**. SAM 2.1 tiny runs in the tab itself on WASM, and your scan is read by the
-page rather than sent anywhere, because there is no server to send it to. The scan and the
-finished page sit side by side in one split view so you can compare them, with the sizes and
-the sheet controls in a single strip underneath. WebGPU is behind `?gpu=1` until it has been
-verified on real hardware.
+**Try the sample**. SAM 2.1 base plus runs in the tab itself on WASM by default, and your scan
+is read by the page rather than sent anywhere, because there is no server to send it to. The
+scan and the finished page sit side by side in one split view so you can compare them, with
+the sizes and the sheet controls in a single strip underneath. WebGPU is behind `?gpu=1`
+until it has been verified on real hardware.
 
 **Locally, in 30 seconds**
 
@@ -70,9 +71,10 @@ after that. Nothing you scan ever leaves your machine.
 
 ## Using it
 
-Pick what is on the scan. **One document** gives you one page out. **Several items** finds
-everything on the platen and gives you a page each, every item straightened to its own
-angle, because four photos on a flatbed never share one.
+The public browser currently finds one document and produces one output page. Drag the box
+or one of its corners if the automatic crop needs help. Several-items mode, candidate
+cycling, merge and per-item rotation exist in the local Python editor, but they have not
+reached the browser build.
 
 Then choose how big it should print. **Keep real size** uses the measurement it took off the
 scan. **Scale to a known size** forces an exact width, with presets for a passport spread, a
@@ -86,8 +88,8 @@ around it.
 Contrast is off by default. What you export is what you scanned. Turn it up when you want
 legibility rather than fidelity.
 
-Keyboard: `C` crop, `S` select, `H` pan, or hold space to pan from any tool. Command or
-control plus scroll to zoom.
+The local Python editor also has the `C`, `S` and `H` tools plus zoom and pan. Those keyboard
+controls are not present in the public browser yet.
 
 ## How accurate is it
 
@@ -113,9 +115,11 @@ true 125 by 176 mm spread and a 105 by 148 mm sample:
 | Passport in a sleeve | 129.5 by 176.8 mm | 127.2 by 174.9 mm |
 
 Identical on the easy one, and base plus is about 2 mm tighter where the document sits inside
-a plastic sleeve, which is the case that has no contrast to work with. It costs twice the
-download and roughly twice the encode time, 1.9 s against 0.9 s on plain CPU. The browser
-build lets you switch between them in the toolbar and defaults to tiny.
+a plastic sleeve, which is the case that has no contrast to work with. The 1.9 s and 0.9 s
+encoder figures came from native CPU runs, not the browser. In a production Chrome baseline
+on 2026-07-31, base-plus took 16.255 s for the encoder and 35.105 s from opening the cached
+sample to seeing the crop; the two decoder passes took 52.7 ms and 46.9 ms. The browser lets
+you switch between the models and defaults to base plus.
 
 Resolution does not change the measurement. The same content scanned at 150, 300, 600 and
 1200 dpi measures the same to within a fraction of a millimetre, because a PDF has no dpi of
@@ -128,15 +132,18 @@ Skew is measured two independent ways and they agree to a quarter of a degree.
 It corrects rotation, not perspective. Flatbed scans have no keystone to fix, so a photo
 taken at an angle with a phone will not be squared up.
 
-Click to select chooses which object you mean. It is not the precise path. For one document
-use **Detect edges**, which came out 6 mm tighter than clicking did on the sleeve scan.
+The browser handles one detected object. It does not yet offer several items, overlapping
+candidates or merge. The local Python editor has those controls.
 
-Segment Anything does not know what a passport is. On a spread inside a sleeve it offers the
-sleeve and each page, never the two pages as one thing, because that grouping is an idea
-rather than a shape. So it offers the alternatives and lets you pick, or tick two and merge.
+The browser currently opens only page one of a PDF and does not show the page count. Split a
+multi-page document first if you need another page.
 
-One browser tab at a time. The model holds state between two calls and the server answers
-requests in parallel, so two people at once would read each other's images.
+Corner trimming still follows the detector's original outline. If you drag the crop to a
+different part of the document, turn **trim corners** off so that outline is not stretched
+onto the hand-adjusted box.
+
+Browser tabs do not share scans. The local Python server does currently share one stateful
+predictor between requests, so use one active local session at a time.
 
 ## Under the hood
 
@@ -166,6 +173,9 @@ so a crop box means the same thing on screen as it does in the file.
 They cover what would go wrong quietly rather than loudly. Real size surviving a crop. The
 same measurement at every resolution. Page geometry to half a millimetre. Two presets that
 share a width behaving differently, which they did not until a test caught it.
+
+Those 15 tests exercise the Python implementation. The browser fixture suite is planned in
+`openspec/changes/browser-core-and-parity/` but has not been added yet.
 
 ## Licence
 

@@ -1,72 +1,88 @@
-# Browser port — status and plan
+# Browser build: current state
 
-The goal is a static Cloudflare Pages site where nothing leaves the machine, which turns
-cropsize's privacy claim from a promise into an architecture and removes PyMuPDF from the
-deployed browser path. The repository itself is licensed under AGPL-3.0.
+The public product is the static app at [cropsize.pages.dev](https://cropsize.pages.dev).
+PDF parsing, image processing, segmentation and PDF writing happen in the tab. A scan is not
+sent to an application server.
 
-## Verified before writing any of this
+This file records what the browser build does now. The implementation plan for closing the
+remaining gaps lives in `openspec/changes/browser-core-and-parity/`.
 
-| Question | Answer |
-|---|---|
-| Does SAM 2.1 ONNX exist? | Yes — `onnx-community/sam2.1-hiera-{tiny,small,base-plus,large}-ONNX`, encoder and decoder as separate graphs. No export work needed. |
-| Does it run, and is it accurate enough? | Yes. tiny/fp32 on the white-background reference scan gives **126.9 x 177.5 mm** against torch base-plus's 126.1 x 177.0 and a true 125.0 x 176.0 — a 39M model within 0.8 mm of the 81M one. |
-| Is it fast enough? | On **CPU**: encoder 0.74 s, decoder **36 ms**. The decoder is the per-click path, so clicking and hovering will feel instant; WebGPU only improves the encode. |
-| Download size? | tiny/fp16 **77.5 MB**, tiny/fp32 155 MB, base-plus/fp16 163 MB. |
-| Licences | onnxruntime-web MIT, pdfjs-dist Apache-2.0, pdf-lib MIT and split.js MIT. The browser path does not load PyMuPDF; third-party notices ship with the build. |
+## Production facts
 
-## Done
+Measured on 2026-07-31 in Chrome:
 
-- `src/lib/constants.ts` — models pinned to immutable revisions with an exact byte
-  manifest, plus the preprocessing contract read off the graphs (1024x1024 non-aspect-
-  preserving resize, ImageNet normalisation, 256x256 mask output).
-- `src/lib/model-loader.ts` — fetch with filename allowlist, `Content-Length` check,
-  mid-stream overflow abort and exact-size verification.
-- `src/lib/model-cache.ts` — IndexedDB cache keyed by revision, best-effort.
-- `src/lib/sam.ts` — encode-once / decode-per-prompt session wrapper, WebGPU with WASM
-  fallback, external-data wiring.
-- Vite + TypeScript in strict mode with `noUncheckedIndexedAccess`, Pages deploy script,
-  `_headers` for cross-origin isolation.
+| Fact | Current result |
+| --- | --- |
+| Cross-origin isolation | On. `crossOriginIsolated === true`; `SharedArrayBuffer` is available. |
+| ONNX Runtime threads | `ort.env.wasm.numThreads` is unset before the first WASM session. ONNX Runtime Web 1.27 then selected 4 threads on a host reporting 10 logical cores. |
+| Default model | SAM 2.1 base-plus, fp16, about 163 MB. Tiny fp16, about 78 MB, is optional. |
+| Sample skew | -2.4 degrees. |
+| Sample size | 104.9 by 147.9 mm against a true 105 by 148 mm. |
+| Browser baseline | Base-plus encoder 16.255 s; decoder passes 52.7 ms and 46.9 ms; 35.105 s from opening the sample to seeing the crop. Model files were cached and sessions were cold. |
+| Peak sampled JavaScript heap | 250.6 MiB during that run. |
 
-Two constraints found by building it rather than by reading docs:
+The old 0.74 s and 1.9 s encoder figures came from native CPU runs. They are useful model
+comparisons, but they are not browser performance figures. The production browser is already
+isolated and ORT is already multithreaded, so the current 16.255 s encoder result is not a
+missing-header or one-thread problem.
 
-1. **ORT must come from a CDN, not the bundle.** Its threaded WASM binary is 26.8 MB and
-   Cloudflare Pages rejects files over 25 MiB. Loaded via `<script>` with Subresource
-   Integrity, exactly as tinyvoice does. Bundle went 27 MB -> 16 KB.
-2. **onnx-community ships weights in a sidecar `.onnx_data`.** ORT will not find it on its
-   own — it must be passed via the session's `externalData` option — and tinyvoice's
-   `/\.onnx$/` filename allowlist rejects it outright.
+## What ships
 
-## Done since: the app itself
+- PDF and raster input. PDF page geometry supplies the physical scale; raster files are
+  reported as scale unknown.
+- The first page of a PDF, rendered at 300 dpi.
+- Automatic skew measurement, single-document segmentation, edge snapping and a draggable
+  crop rectangle.
+- Optional corner trimming, contrast and white-point controls.
+- Real-size, known-size and fill-sheet layout on A3, A4, A5, Letter, Legal or no sheet.
+- A preview composed by the same path used for PDF export.
+- Local model caching and a choice between base-plus and tiny.
 
-The browser build now loads a scan, detects, measures, lays out and exports on its own. What
-moved across, and what is still only in the Python build:
+## What does not ship yet
 
-| Python | Browser | Notes |
-|---|---|---|
-| PyMuPDF render + page geometry | `pdfjs-dist` | Page size in points comes from `getViewport`; the embedded-image dpi used by `page_optical_dpi` is harder to reach and may need `getOperatorList`. **The dpi inference is the risk item.** |
-| `cv2` warpAffine, Sobel, CLAHE, morphology, `findContours`, `minAreaRect`, `approxPolyDP`, `connectedComponents` | `@techstark/opencv-js` | All present in the WASM build. ~10 MB, cached. |
-| `estimate_skew`, `snap_edges`, `mask_to_obj`, `group_objects`, `refine_obj`, `trim_to_outline` | port to TS | Pure array maths over OpenCV primitives; direct translation. |
-| `place_on_page`, `to_pdf` | `pdf-lib` | Physical-size maths is unit arithmetic and moves as-is. |
-| Editor UI | already vanilla JS canvas | Largely portable from `static/app.js`. |
+- Several-items mode, per-item rotation, candidate cycling or merge.
+- Multi-page navigation. The browser currently opens page one without exposing the page
+  count.
+- Zoom and pan.
+- Output-resolution control.
+- Browser fixture tests. The TypeScript imaging maths is still a hand port with no Vitest
+  coverage.
 
-Suggested order: PDF load + dpi inference first (it is the risk), then SAM wiring against
-the reference scans, then the imaging translation, then export.
+## Implementation map
 
-## Guard rail
+| Area | Browser implementation | Current limitation |
+| --- | --- | --- |
+| Source | `pdfjs-dist` and canvas | `loadPdf()` always calls `getPage(1)`. |
+| Segmentation | SAM 2.1 through `onnxruntime-web` | One box/point result, not an object set. |
+| Geometry | Hand-written TypeScript in `deskew.ts`, `detect.ts` and `sheet.ts` | No shared core and no fixture suite. |
+| Computer vision primitives | None | `opencv-js` was removed during the public-release cleanup. |
+| Output | `pdf-lib` | Fixed internal export resolution. |
+| UI | One `main.ts` file plus canvas | No page state, object list, zoom or pan. |
 
-The Python test suite encodes the properties that must survive the port: measurement
-invariant across 150/300/600/1200 dpi, physical size surviving a crop, exact page geometry,
-preset boxes constraining the taller axis. Port those to Vitest and the browser build has
-the same safety net. Any implementation that reproduces **126.x x 177.x mm** on the
-white-background reference scan and **85.6 x 54.0 mm** on the ID card is behaving.
+Two constraints still shape the build:
 
-## Deploy
+1. ONNX Runtime is loaded from jsDelivr with Subresource Integrity, keeping its runtime
+   binaries outside the application bundle. The largest WASM variant in 1.27.0 is
+   26,827,543 bytes.
+2. The model weights use `.onnx_data` sidecars. They must be passed through ORT's
+   `externalData` option and are verified against the pinned byte manifest before caching.
+
+## Tests and next work
+
+The Python suite has 15 tests for physical scale, crop geometry, page layout, rotation,
+deskew, trimming and PDF export. The browser does not yet assert those fixtures. The
+`browser-core-and-parity` OpenSpec change adds a shared corpus, a browser suite and a measured
+Rust/WASM spike before committing to the rest of the computer-vision layer.
+
+## Run and deploy
 
 ```bash
-cd web && npm install
-npm run dev                # local, with cross-origin isolation headers
-npm run build              # -> dist, ~16 KB plus CDN'd ORT
-npm run deploy             # wrangler pages deploy dist --project-name cropsize
+cd web
+npm install
+npm run dev
+npm run build
+npm run deploy
 ```
 
-No Pages project exists yet; the first `npm run deploy` creates it.
+`npm run deploy` publishes `web/dist` to the existing Cloudflare Pages project named
+`cropsize`.

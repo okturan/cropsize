@@ -34,6 +34,6 @@ None. No specs exist in `openspec/specs/` yet, so every capability above is new.
 
 **Changed**: `web/src/lib/deskew.ts`, `detect.ts`, `sheet.ts`, `tone.ts` become thin bindings. `web/src/main.ts` is split. `web/src/style.css` loses its dead half. `web/vite.config.ts` and CI gain the wasm build.
 
-**Runtime**: threaded WebAssembly needs cross-origin isolation, the same requirement ONNX Runtime already has. The `_headers` file was malformed until recently and may still not be applying, which would cap both at a single thread. Confirming that is the first task, because it gates whether any of this is faster.
+**Runtime**: production was checked on 2026-07-31. It is cross-origin isolated, and ONNX Runtime Web 1.27 initialises its WASM backend with four threads on the measured Chrome host, which reports ten logical cores. The current base-plus browser baseline is 16.255 s for the encoder and 35.105 s from opening the sample to seeing the crop, with a peak sampled JavaScript heap of 250.6 MiB. The header is not the cause of that result, and the core is not being justified as an encoder speed fix.
 
 **Risk**: Rust becomes a second language in the project, and every future change to the maths happens there. The first task after the isolation check is a spike that ports only the deskew, measured against answers we already know to two decimals, so the approach is proven cheaply before the computer vision layer commits to it.

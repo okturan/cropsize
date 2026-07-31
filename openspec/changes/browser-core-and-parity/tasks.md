@@ -3,7 +3,7 @@
 - [x] 1.1 Open the deployed page and read the note under the progress bar to confirm whether the browser is cross-origin isolated. Everything about performance depends on the answer, and threaded WebAssembly needs the same header ONNX does
   - Verified on 2026-07-31 at `https://cropsize.pages.dev/`: `crossOriginIsolated === true` and `SharedArrayBuffer` is available.
 - [x] 1.2 If it is not isolated, fix the `_headers` file until it is, and record the encode time before and after. This may be a larger speedup than the entire core
-  - Not applicable: production is already isolated, so no header change or before/after encode comparison was required.
+  - Not applicable: production is already isolated, so no header change or before/after encode comparison was required. ONNX Runtime Web 1.27 leaves `numThreads` unset before initialisation, then selected four threads on the measured Chrome host's ten logical cores.
 - [ ] 1.3 Record the current baseline on the fixture scans: encode time, total time from opening a file to a crop on screen, and peak memory. Without this there is nothing to claim an improvement against
   - Partial production baseline on 2026-07-31, Chrome, base-plus fp16/WASM, model files cached but sessions cold:
     - `sample-scan.pdf`: encode 16.255 s; open-to-crop 35.105 s; peak sampled JS heap 262,808,671 bytes (250.6 MiB); decoder passes 52.7 ms and 46.9 ms.

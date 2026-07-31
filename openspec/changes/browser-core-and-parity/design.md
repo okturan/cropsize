@@ -12,9 +12,11 @@ None of these were visible by looking at the screen. All were found by comparing
 
 Meanwhile the browser cannot do objects mode, which is the largest remaining feature gap, and objects mode needs a computer vision layer that the browser build does not have at all. `@techstark/opencv-js` was added and then removed during the public release cleanup.
 
-Relevant measured facts carried in from earlier work:
+Relevant measured facts carried in from earlier work and the production gate:
 
-- SAM 2.1 base-plus, fp16 ONNX: encoder 1.9 s, decoder 70 ms on multi-threaded CPU. Session build is seconds and reports nothing while it works.
+- Native CPU reference, not a browser result: SAM 2.1 base-plus fp16 ONNX encoded in 1.9 s and decoded in about 70 ms.
+- Production browser baseline on 2026-07-31, Chrome, base-plus fp16/WASM, model files cached and sessions cold: encoder 16.255 s; decoder passes 52.7 ms and 46.9 ms; 35.105 s from opening the sample to seeing the crop; peak sampled JavaScript heap 250.6 MiB.
+- Production is cross-origin isolated. ONNX Runtime Web 1.27 leaves `ort.env.wasm.numThreads` unset until its first WASM session, then resolved it to four threads on the measured host's ten logical cores. The browser/native gap is not a one-thread header failure.
 - The browser holds three full-resolution frames, roughly 110 MB for a 300 dpi A4.
 - `snapEdges` allocates a 36 MB float array per call. `refreshOutput` re-crops and re-trims about 3M pixels on every settings change.
 - Known-good answers: deskew of -2.4 on the sample, 1.1 on ilkyaz, -1.4 on irene. Measured sizes of 104.9 by 147.9 mm on the sample against a true 105 by 148, and 127.2 by 174.9 mm on ilkyaz against a true 125 by 176.
@@ -81,7 +83,7 @@ Stage one is find several items, give each its own rotation, export a page each.
 
 ## Risks / Trade-offs
 
-**Cross-origin isolation may still not be applying** → Threaded WASM and threaded ONNX both depend on it. The `_headers` file had indented comments inside the rule block, which is invalid and may have discarded the whole block. Task one is to confirm isolation on the deployed page before any performance work. If it is off, fixing it is likely a larger speedup than the entire core.
+**The browser model remains slow with threading available** → Production is isolated and ONNX Runtime uses four threads on the measured host, yet the base-plus encoder still took 16.255 s. The remaining encoder work is on the model/runtime side. The Rust core still has a case as the single tested home for geometry and the missing computer-vision primitives, but it must not be sold as the fix for model latency.
 
 **Rust becomes a second language nobody wants to maintain** → The spike is deliberately scoped to one function so this is discovered in a day rather than after the computer vision layer is committed. If the spike is unpleasant, the fallback is the Worker plus golden corpus, which keeps the tests and forfeits the single source of truth.
 
@@ -95,7 +97,7 @@ Stage one is find several items, give each its own rotation, export a page each.
 
 ## Migration Plan
 
-1. Confirm cross-origin isolation on the deployed page. No code.
+1. Confirm cross-origin isolation and the effective ONNX Runtime thread count on the deployed page. Complete on 2026-07-31: isolation is on and ORT initialises four WASM threads on the measured host.
 2. Spike: Rust deskew, wasm-pack build, fixture table, wired into the browser build behind the existing straighten control. Ship it. Delete `deskew.ts` only once the fixtures pass in both suites.
 3. Grow the core function by function, each one replacing its TypeScript counterpart and inheriting its fixtures. Order: snap, hull and mask cleanup, trim, rotated-rect extraction.
 4. Add the computer vision primitives with no consumer yet, tested in Rust alone.
