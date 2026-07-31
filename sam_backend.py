@@ -27,11 +27,22 @@ from __future__ import annotations
 
 import functools
 import os
+import threading
 
 import cv2
 import numpy as np
 
 MODEL_ID = os.environ.get("CROPBOX_SAM_MODEL", "facebook/sam2.1-hiera-base-plus")
+_PREDICTOR_LOCK = threading.Lock()
+
+
+def _serialized_predictor(fn):
+    """Keep set_image() and every dependent predict() on one request at a time."""
+    @functools.wraps(fn)
+    def wrapped(*args, **kwargs):
+        with _PREDICTOR_LOCK:
+            return fn(*args, **kwargs)
+    return wrapped
 
 
 def sam_available() -> bool:
@@ -88,6 +99,7 @@ def _contour_outline(mask: np.ndarray, sw: int, sh: int):
             for x, y in cv2.approxPolyDP(big, eps, True).reshape(-1, 2)]
 
 
+@_serialized_predictor
 def auto_object_groups(img: np.ndarray, max_objects: int = 16, grid: int = 8,
                        min_score: float = 0.80):
     """Find every document-like item on the platen without any clicks.
@@ -129,6 +141,7 @@ def auto_objects(img: np.ndarray, max_objects: int = 16, **kw):
     return [g[0] for g in auto_object_groups(img, max_objects, **kw)]
 
 
+@_serialized_predictor
 def object_at(img: np.ndarray, points: list[tuple[float, float, int]]):
     """Click-to-select: positive points include, negative points carve away."""
     from pipeline import mask_to_obj
@@ -153,6 +166,7 @@ def object_at(img: np.ndarray, points: list[tuple[float, float, int]]):
     return best
 
 
+@_serialized_predictor
 def detect_sam(img: np.ndarray):
     """Box-prompt at a generous inset and return the best mask's bounds plus outline."""
     from pipeline import Detection, snap_edges

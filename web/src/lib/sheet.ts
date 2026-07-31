@@ -30,7 +30,7 @@ export interface Layout {
   fit: Fit;
   preset: PresetName;
   marginMm: number;
-  trim?: { mask: Float32Array; size: number } | null;
+  trim?: { mask: Float32Array; size: number; box: Box } | null;
 }
 
 /**
@@ -39,7 +39,7 @@ export interface Layout {
  * where the paper stops, so use it rather than accept the square corners.
  */
 export function trimToMask(
-  canvas: OffscreenCanvas, _box: Box, mask: Float32Array, size: number,
+  canvas: OffscreenCanvas, box: Box, mask: Float32Array, size: number, maskBox = box,
 ): OffscreenCanvas {
   const ctx = canvas.getContext("2d")!;
   const img = ctx.getImageData(0, 0, canvas.width, canvas.height);
@@ -47,10 +47,12 @@ export function trimToMask(
   const at = (x: number, y: number) =>
     mask[Math.min(size - 1, Math.max(0, y)) * size + Math.min(size - 1, Math.max(0, x))] ?? -1;
 
-  // Fit the outline to the crop by its own bounds rather than through the detected box.
-  // The box is snapped to the strongest edge afterwards, so the two disagree by a millimetre
-  // or two, and that offset is what left some corners square and clipped others. Anchoring
-  // the outline to the crop puts its arcs exactly at the crop's corners.
+  // When this is still the detector's crop, fit the outline to that crop by its own bounds.
+  // The box is snapped to the strongest edge after segmentation, so the two disagree by a
+  // millimetre or two. Anchoring here keeps the rounded corners aligned on the automatic
+  // result. Once a person moves or resizes the crop, sample the mask in full-frame
+  // coordinates instead. Stretching the old outline over the new box is the bug this split
+  // prevents.
   let hx0 = size, hy0 = size, hx1 = -1, hy1 = -1;
   for (let y = 0; y < size; y++) {
     for (let x = 0; x < size; x++) {
@@ -64,12 +66,22 @@ export function trimToMask(
   }
   if (hx1 < hx0 || hy1 < hy0) return canvas;
   const spanX = hx1 - hx0 + 1, spanY = hy1 - hy0 + 1;
+  const automatic = Math.abs(box.x0 - maskBox.x0) < 1e-9
+    && Math.abs(box.y0 - maskBox.y0) < 1e-9
+    && Math.abs(box.x1 - maskBox.x1) < 1e-9
+    && Math.abs(box.y1 - maskBox.y1) < 1e-9;
 
   for (let y = 0; y < canvas.height; y++) {
-    const my = hy0 + (y / canvas.height) * spanY - 0.5;
+    const ny = (y + 0.5) / canvas.height;
+    const my = automatic
+      ? hy0 + ny * spanY - 0.5
+      : (box.y0 + ny * (box.y1 - box.y0)) * size - 0.5;
     const fy = Math.floor(my), wy = my - fy;
     for (let x = 0; x < canvas.width; x++) {
-      const mx = hx0 + (x / canvas.width) * spanX - 0.5;
+      const nx = (x + 0.5) / canvas.width;
+      const mx = automatic
+        ? hx0 + nx * spanX - 0.5
+        : (box.x0 + nx * (box.x1 - box.x0)) * size - 0.5;
       const fx = Math.floor(mx), wx = mx - fx;
       // Bilinear, so the boundary is a soft edge rather than a staircase of mask pixels,
       // each one of which is several millimetres across at print size.
@@ -172,7 +184,9 @@ export async function exportPdf(
 ): Promise<Blob> {
   const { sheetMm, contentMm } = plan(scan, box, layout);
   let crop = cropCanvas(scan.image, box);
-  if (layout.trim) crop = trimToMask(crop, box, layout.trim.mask, layout.trim.size);
+  if (layout.trim) {
+    crop = trimToMask(crop, box, layout.trim.mask, layout.trim.size, layout.trim.box);
+  }
 
   // Resample once, to exactly the pixels the printed size needs at the export resolution.
   const wPx = Math.max(1, Math.round((contentMm[0] / 25.4) * dpi));

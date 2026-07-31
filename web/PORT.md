@@ -30,7 +30,8 @@ missing-header or one-thread problem.
 
 - PDF and raster input. PDF page geometry supplies the physical scale; raster files are
   reported as scale unknown.
-- The first page of a PDF, rendered at 300 dpi.
+- Multi-page PDF navigation. The selected page is rendered at 300 dpi, and every visited
+  page keeps its own crop, quarter-turn rotation, skew and mask.
 - Automatic skew measurement, single-document segmentation, edge snapping and a draggable
   crop rectangle.
 - Optional corner trimming, contrast and white-point controls.
@@ -41,8 +42,6 @@ missing-header or one-thread problem.
 ## What does not ship yet
 
 - Several-items mode, per-item rotation, candidate cycling or merge.
-- Multi-page navigation. The browser currently opens page one without exposing the page
-  count.
 - Zoom and pan.
 - Output-resolution control.
 - Browser fixture tests. The TypeScript imaging maths is still a hand port with no Vitest
@@ -52,12 +51,12 @@ missing-header or one-thread problem.
 
 | Area | Browser implementation | Current limitation |
 | --- | --- | --- |
-| Source | `pdfjs-dist` and canvas | `loadPdf()` always calls `getPage(1)`. |
+| Source | `pdfjs-dist` and canvas | Pages are rendered on demand; visited pages keep one original frame each. |
 | Segmentation | SAM 2.1 through `onnxruntime-web` | One box/point result, not an object set. |
 | Geometry | Hand-written TypeScript in `deskew.ts`, `detect.ts` and `sheet.ts` | No shared core and no fixture suite. |
 | Computer vision primitives | None | `opencv-js` was removed during the public-release cleanup. |
 | Output | `pdf-lib` | Fixed internal export resolution. |
-| UI | One `main.ts` file plus canvas | No page state, object list, zoom or pan. |
+| UI | One `main.ts` file plus canvas | No object list, zoom or pan. |
 
 Two constraints still shape the build:
 
@@ -69,7 +68,7 @@ Two constraints still shape the build:
 
 ## Tests and next work
 
-The Python suite has 15 tests for physical scale, crop geometry, page layout, rotation,
+The Python suite has 16 tests for physical scale, crop geometry, page layout, rotation,
 deskew, trimming and PDF export. The browser does not yet assert those fixtures. The
 `browser-core-and-parity` OpenSpec change adds a shared corpus, a browser suite and a measured
 Rust/WASM spike before committing to the rest of the computer-vision layer.

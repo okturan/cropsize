@@ -71,10 +71,11 @@ after that. Nothing you scan ever leaves your machine.
 
 ## Using it
 
-The public browser currently finds one document and produces one output page. Drag the box
-or one of its corners if the automatic crop needs help. Several-items mode, candidate
-cycling, merge and per-item rotation exist in the local Python editor, but they have not
-reached the browser build.
+The public browser finds one document on the selected page and produces one output page.
+For a multi-page PDF, choose any page from the page selector; each visited page keeps its own
+crop, quarter-turn rotation and straightening angle. Drag the box or one of its corners if
+the automatic crop needs help. Several-items mode, candidate cycling, merge and per-item
+rotation exist in the local Python editor, but they have not reached the browser build.
 
 Then choose how big it should print. **Keep real size** uses the measurement it took off the
 scan. **Scale to a known size** forces an exact width, with presets for a passport spread, a
@@ -135,15 +136,8 @@ taken at an angle with a phone will not be squared up.
 The browser handles one detected object. It does not yet offer several items, overlapping
 candidates or merge. The local Python editor has those controls.
 
-The browser currently opens only page one of a PDF and does not show the page count. Split a
-multi-page document first if you need another page.
-
-Corner trimming still follows the detector's original outline. If you drag the crop to a
-different part of the document, turn **trim corners** off so that outline is not stretched
-onto the hand-adjusted box.
-
-Browser tabs do not share scans. The local Python server does currently share one stateful
-predictor between requests, so use one active local session at a time.
+Browser tabs do not share scans. The local Python server serializes access to its one cached
+predictor so concurrent requests cannot replace each other's images.
 
 ## Under the hood
 
@@ -152,7 +146,7 @@ app.py            HTTP routes
 pipeline.py       loading, transforms, deskew, tone, page layout
 sam_backend.py    Segment Anything 2, imported only if installed
 static/           the editor, plain JavaScript and a canvas
-tests/            15 tests, no model needed
+tests/            16 tests, no model needed
 web/              the browser build, deployed to cropsize.pages.dev
 site/             an older static landing page, kept for reference
 ```
@@ -174,7 +168,7 @@ They cover what would go wrong quietly rather than loudly. Real size surviving a
 same measurement at every resolution. Page geometry to half a millimetre. Two presets that
 share a width behaving differently, which they did not until a test caught it.
 
-Those 15 tests exercise the Python implementation. The browser fixture suite is planned in
+Those 16 tests exercise the Python implementation. The browser fixture suite is planned in
 `openspec/changes/browser-core-and-parity/` but has not been added yet.
 
 ## Licence

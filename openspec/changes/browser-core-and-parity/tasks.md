@@ -60,8 +60,10 @@
 
 ## 7. Parity items that do not need the core
 
-- [ ] 7.1 Read the page count and let a page be selected, so a multi-page document stops silently becoming page one
-- [ ] 7.2 Keep each page's own crop, rotation and measurement when moving between pages
+- [x] 7.1 Read the page count and let a page be selected, so a multi-page document stops silently becoming page one
+  - Verified in Chrome with a two-page PDF: the selector showed both pages and loaded their distinct 50.8 by 25.4 mm and 25.4 by 50.8 mm geometry.
+- [x] 7.2 Keep each page's own crop, rotation and measurement when moving between pages
+  - Verified in Chrome: page one's quarter-turned 22.9 by 45.7 mm crop and 1.2 degree skew survived a round trip through page two, whose own -0.7 degree skew was also restored.
 - [ ] 7.3 Zoom and pan, with the crop stated in normalised coordinates so it survives both
 - [ ] 7.4 Output resolution control, defaulting to matching the source
 
@@ -78,11 +80,14 @@
 - [ ] 9.2 Move `turnBox` and `turnMask` out of the UI file, since they are pure maths and belong under test
 - [ ] 9.3 Delete the dead stylesheet inherited from the Python app: 15 ids and 36 classes with no match in the browser markup
 - [ ] 9.4 Remove `EXPECTED_MS`, which nothing references, and the unused `trim` field carried through `plan()`
-- [ ] 9.5 Update the README so it describes what the browser build does, rather than the Python build's feature set
+- [x] 9.5 Update the README so it describes what the browser build does, rather than the Python build's feature set
+  - Browser and local-Python features, model defaults, runtime numbers and remaining limitations are now stated separately.
 - [ ] 9.6 Decide whether the Python build adopts the core through pyo3 or is allowed to drift, and record the decision
 
 ## 10. Known bugs to close along the way
 
-- [ ] 10.1 Trimming ignores the crop it is given, so a hand-adjusted crop has the outline stretched onto it. Closed by 4.3
-- [ ] 10.2 Multi-page PDFs silently read page one. Closed by 7.1
-- [ ] 10.3 The Python server shares one stateful predictor across concurrent requests, so two tabs read each other's images. Fix with a lock, independent of everything above
+- [x] 10.1 Trimming ignored the crop it was given, so a hand-adjusted crop had the outline stretched onto it. Fixed ahead of the core port; 4.3 must preserve the corrected behaviour
+  - Verified in Chrome with a synthetic rounded mask: the automatic crop cleared 60 corner pixels, while a hand-adjusted crop entirely inside the document cleared none.
+- [x] 10.2 Multi-page PDFs silently read page one. Closed by 7.1
+- [x] 10.3 The Python server shared one stateful predictor across concurrent requests, so two tabs could read each other's images. Fixed with a lock, independent of everything above
+  - A concurrency regression test proves two predictor transactions never overlap.

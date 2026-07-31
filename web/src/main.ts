@@ -4,7 +4,9 @@
  */
 import { Sam } from "./lib/sam";
 import { detect, type Box } from "./lib/detect";
-import { loadFile, loadSample, type Scan } from "./lib/source";
+import {
+  loadFile, loadSample, type DocumentSource, type Scan,
+} from "./lib/source";
 import { estimateSkew, rotate, quarterTurns } from "./lib/deskew";
 import { applyTone } from "./lib/tone";
 import {
@@ -26,17 +28,33 @@ import type { Quality } from "./lib/constants";
 let quality: Quality = "base-plus";
 let sam = new Sam(quality, "fp16");
 
+type MaskState = { mask: Float32Array; size: number; box: Box };
+type PageState = {
+  scan: Omit<Scan, "image">;
+  original: ImageData;
+  skew: number;
+  mask: MaskState | null;
+  box: Box;
+  note: string;
+};
+
+const defaultBox = (): Box => ({ x0: 0.05, y0: 0.05, x1: 0.95, y1: 0.95 });
+
 const S: {
+  source: DocumentSource | null;
+  page: number;
+  pages: Map<number, PageState>;
   scan: Scan | null;                 // the working frame, straightened, untoned
   toned: ImageData | null;           // the same frame with contrast applied, for output
   original: ImageData | null;        // before straightening, so the slider can redo it
   skew: number;
-  mask: { mask: Float32Array; size: number } | null;
+  mask: MaskState | null;
   box: Box;
   drag: null | { kind: "move" | "handle"; i: number; ox: number; oy: number };
 } = {
+  source: null, page: 0, pages: new Map(),
   scan: null, toned: null, original: null, skew: 0, mask: null,
-  box: { x0: 0.05, y0: 0.05, x1: 0.95, y1: 0.95 }, drag: null,
+  box: defaultBox(), drag: null,
 };
 
 let currentFit: Fit = "true";
@@ -96,34 +114,115 @@ function showProgress(on: boolean, label?: string) {
   if (label) $("progressLabel").textContent = label;
 }
 
-async function open(loader: () => Promise<Scan>) {
+function rememberPage() {
+  if (!S.scan || !S.original) return;
+  const { image: _image, ...scan } = S.scan;
+  S.pages.set(S.page, {
+    scan,
+    original: S.original,
+    skew: S.skew,
+    mask: S.mask ? { ...S.mask, box: { ...S.mask.box } } : null,
+    box: { ...S.box },
+    note: $("note").textContent ?? "",
+  });
+}
+
+function showPage(state: PageState, index: number) {
+  S.page = index;
+  S.original = state.original;
+  S.skew = state.skew;
+  S.scan = { ...state.scan, image: rotate(state.original, state.skew) };
+  S.mask = state.mask ? { ...state.mask, box: { ...state.mask.box } } : null;
+  S.box = { ...state.box };
+  S.drag = null;
+  S.toned = null;
+  $<HTMLSelectElement>("pageSelect").value = String(index);
+  $<HTMLInputElement>("skew").value = String(S.skew);
+  $("skewOut").textContent = S.skew.toFixed(1);
+  $("fileName").textContent = state.scan.name;
+  $("note").textContent = state.note;
+  retone();
+  showProgress(false);
+  draw();
+  refreshOutput();
+}
+
+function showPageControls(source: DocumentSource) {
+  const select = $<HTMLSelectElement>("pageSelect");
+  select.replaceChildren();
+  for (let i = 0; i < source.pageCount; i++) {
+    const option = document.createElement("option");
+    option.value = String(i);
+    option.textContent = String(i + 1);
+    select.append(option);
+  }
+  $("pageTotal").textContent = `of ${source.pageCount}`;
+  $("pageNav").hidden = source.pageCount <= 1;
+}
+
+async function loadFreshPage(index: number) {
+  if (!S.source) return;
+  const source = S.source;
+  showProgress(true, source.pageCount > 1
+    ? `Reading page ${index + 1} of ${source.pageCount}` : "Reading the scan");
+  const scan = await source.loadPage(index);
+  S.page = index;
+  S.original = scan.image;
+  S.scan = null;
+  S.toned = null;
+  S.mask = null;
+  S.box = defaultBox();
+  S.drag = null;
+  $("fileName").textContent = scan.name;
+  $<HTMLSelectElement>("pageSelect").value = String(index);
+  $("note").textContent = "";
+
+  // Straighten before anything else, the same order the Python build uses, so the crop box
+  // and the measurement both refer to the upright frame.
+  showProgress(true, "Measuring the tilt");
+  S.skew = estimateSkew(scan.image);
+  $<HTMLInputElement>("skew").value = String(S.skew);
+  $("skewOut").textContent = S.skew.toFixed(1);
+  S.scan = { ...scan, image: rotate(scan.image, S.skew) };
+  retone();
+  draw();
+  await runDetect();
+  rememberPage();
+}
+
+async function selectPage(index: number) {
+  if (!S.source || index === S.page) return;
+  rememberPage();
+  const saved = S.pages.get(index);
+  if (saved) {
+    showPage(saved, index);
+    return;
+  }
+  await loadFreshPage(index);
+}
+
+async function open(loader: () => Promise<DocumentSource>) {
   $("drop").hidden = true;
+  $("dropError").hidden = true;
   showProgress(true, "Reading the scan");
   try {
-    const scan = await loader();
-    S.original = scan.image;
-    $("fileName").textContent = scan.name;
-
-    // Straighten before anything else, the same order the Python build uses, so the crop box
-    // and the measurement both refer to the upright frame.
-    showProgress(true, "Measuring the tilt");
-    S.skew = estimateSkew(scan.image);
-    $<HTMLInputElement>("skew").value = String(S.skew);
-    $("skewOut").textContent = S.skew.toFixed(1);
-    S.scan = { ...scan, image: rotate(scan.image, S.skew) };
-    S.mask = null;
-    retone();
+    const source = await loader();
+    if (S.source) await S.source.close();
+    S.source = source;
+    S.pages.clear();
+    S.page = 0;
+    showPageControls(source);
     $("app").hidden = false;
     $("start").hidden = true;
     initSplit();
-    retone();
-    draw();
-    await runDetect();
+    await loadFreshPage(0);
   } catch (err) {
     // Inline rather than alert(): a modal blocks the page, which hides the actual failure
     // and stops any automated capture dead.
     showProgress(false);
+    $("app").hidden = true;
     $("start").hidden = false;
+    $("drop").hidden = false;
     $("dropError").textContent = `Could not open that. ${(err as Error).message}`;
     $("dropError").hidden = false;
   }
@@ -145,8 +244,8 @@ async function runDetect() {
     $("progressNote").textContent = Sam.threaded
       ? "running the model" : "running the model on a single thread";
     if (first) $("progressLabel").textContent = "Looking for the document";
-    S.mask = { mask: r.mask, size: r.maskSize };
-    S.box = r.box;
+    S.box = { ...r.box };
+    S.mask = { mask: r.mask, size: r.maskSize, box: { ...r.box } };
     $("note").textContent =
       `Found it. ${r.note}${S.skew ? `, straightened by ${S.skew.toFixed(1)} degrees` : ""}.`;
   } catch (err) {
@@ -156,6 +255,7 @@ async function runDetect() {
   showProgress(false);
   draw();
   refreshOutput();
+  rememberPage();
 }
 
 /* ------------------------------------------------------------------- canvas */
@@ -277,7 +377,7 @@ function refreshOutput() {
 
     // Compose the sheet the same way the export does, so the preview cannot drift from it.
     let crop = cropCanvas(outputImage(), S.box);
-    if (L.trim) crop = trimToMask(crop, S.box, L.trim.mask, L.trim.size);
+    if (L.trim) crop = trimToMask(crop, S.box, L.trim.mask, L.trim.size, L.trim.box);
     const dpi = 110;
     const sheetMm = p.sheetMm
       ?? [p.contentMm[0] + 2 * L.marginMm, p.contentMm[1] + 2 * L.marginMm];
@@ -305,6 +405,22 @@ for (const id of ["file", "file2"]) {
     if (f) open(() => loadFile(f));
   });
 }
+
+$("pageSelect").addEventListener("change", async event => {
+  const select = event.target as HTMLSelectElement;
+  const next = Number(select.value);
+  if (!Number.isInteger(next)) return;
+  select.disabled = true;
+  try {
+    await selectPage(next);
+  } catch (err) {
+    showProgress(false);
+    select.value = String(S.page);
+    $("note").textContent = `Could not open that page. ${(err as Error).message}`;
+  } finally {
+    select.disabled = false;
+  }
+});
 $("startOver").addEventListener("click", () => location.reload());
 
 /**
@@ -343,7 +459,13 @@ function turn(quarters: number) {
   // The tilt relative to the axes is unchanged by a quarter turn, so it carries over as is.
   S.scan = { ...S.scan, image: rotate(S.original, S.skew) };
   S.box = turnBox(S.box, k);
-  if (S.mask) S.mask = { mask: turnMask(S.mask.mask, S.mask.size, k), size: S.mask.size };
+  if (S.mask) {
+    S.mask = {
+      mask: turnMask(S.mask.mask, S.mask.size, k),
+      size: S.mask.size,
+      box: turnBox(S.mask.box, k),
+    };
+  }
   retone();
   draw();
   refreshOutput();

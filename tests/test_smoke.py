@@ -119,3 +119,34 @@ def test_export_produces_a_readable_pdf():
     doc = fitz.open(stream=data, filetype="pdf")
     assert doc.page_count == 2
     assert doc[0].rect.width / 72 * 25.4 == pytest.approx(210.0, abs=0.5)
+
+
+def test_shared_sam_predictor_calls_are_serialized():
+    """A second request must not replace the image used by an in-flight prediction."""
+    import concurrent.futures
+    import threading
+    import time
+
+    import sam_backend
+
+    for name in ("detect_sam", "auto_object_groups", "object_at"):
+        assert hasattr(getattr(sam_backend, name), "__wrapped__")
+
+    active = 0
+    peak = 0
+    state_lock = threading.Lock()
+
+    @sam_backend._serialized_predictor
+    def predictor_transaction():
+        nonlocal active, peak
+        with state_lock:
+            active += 1
+            peak = max(peak, active)
+        time.sleep(0.03)
+        with state_lock:
+            active -= 1
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
+        list(pool.map(lambda _: predictor_transaction(), range(2)))
+
+    assert peak == 1

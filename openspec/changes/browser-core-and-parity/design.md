@@ -1,6 +1,6 @@
 ## Context
 
-cropsize exists twice. The Python build is complete and has 15 tests. The browser build is what the public URL serves, and it is a hand port with no tests. The port has already produced three defects that the original never had:
+cropsize exists twice. The Python build is complete and has 16 tests. The browser build is what the public URL serves, and it is a hand port with no fixture suite. The port has already produced three defects that the original never had:
 
 | defect | cause | how it was caught |
 | --- | --- | --- |

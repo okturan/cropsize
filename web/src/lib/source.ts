@@ -28,6 +28,13 @@ export interface Scan {
   name: string;
 }
 
+export interface DocumentSource {
+  name: string;
+  pageCount: number;
+  loadPage(index: number): Promise<Scan>;
+  close(): Promise<void>;
+}
+
 function toImageData(canvas: HTMLCanvasElement | OffscreenCanvas): ImageData {
   const ctx = canvas.getContext("2d") as
     CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D | null;
@@ -43,35 +50,49 @@ function pageCanvas(w: number, h: number): HTMLCanvasElement {
   return c;
 }
 
-export async function loadPdf(data: ArrayBuffer, name: string, dpi = RENDER_DPI): Promise<Scan> {
-  const doc = await pdfjs.getDocument({ data: new Uint8Array(data) }).promise;
-  const page = await doc.getPage(1);
+export async function loadPdf(
+  data: ArrayBuffer, name: string, dpi = RENDER_DPI,
+): Promise<DocumentSource> {
+  const task = pdfjs.getDocument({ data: new Uint8Array(data) });
+  const doc = await task.promise;
+  const loadPage = async (index: number): Promise<Scan> => {
+    if (!Number.isInteger(index) || index < 0 || index >= doc.numPages) {
+      throw new Error(`page ${index + 1} is outside this ${doc.numPages}-page PDF`);
+    }
+    const page = await doc.getPage(index + 1);
+    const base = page.getViewport({ scale: 1 });          // 1 unit == 1 point
+    const pageMm: [number, number] = [
+      Math.round((base.width / 72) * 25.4 * 10) / 10,
+      Math.round((base.height / 72) * 25.4 * 10) / 10,
+    ];
 
-  const base = page.getViewport({ scale: 1 });          // 1 unit == 1 point
-  const pageMm: [number, number] = [
-    Math.round((base.width / 72) * 25.4 * 10) / 10,
-    Math.round((base.height / 72) * 25.4 * 10) / 10,
-  ];
+    const viewport = page.getViewport({ scale: dpi / 72 });
+    const canvas = pageCanvas(Math.round(viewport.width), Math.round(viewport.height));
+    const ctx = canvas.getContext("2d");
+    if (!ctx) throw new Error("no 2d context");
+    ctx.fillStyle = "#fff";
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    await page.render({ canvas, viewport }).promise;
 
-  const viewport = page.getViewport({ scale: dpi / 72 });
-  const canvas = pageCanvas(Math.round(viewport.width), Math.round(viewport.height));
-  const ctx = canvas.getContext("2d");
-  if (!ctx) throw new Error("no 2d context");
-  ctx.fillStyle = "#fff";
-  ctx.fillRect(0, 0, canvas.width, canvas.height);
-  await page.render({ canvas, viewport }).promise;
+    return {
+      image: toImageData(canvas),
+      mmPerPx: 25.4 / dpi,
+      pageMm,
+      dpi,
+      origin: `PDF page ${index + 1} of ${doc.numPages}, ${pageMm[0]} by ${pageMm[1]} mm, rendered at ${dpi} dpi`,
+      name: doc.numPages > 1 ? `${name}, page ${index + 1}` : name,
+    };
+  };
 
   return {
-    image: toImageData(canvas),
-    mmPerPx: 25.4 / dpi,
-    pageMm,
-    dpi,
-    origin: `PDF page geometry ${pageMm[0]} by ${pageMm[1]} mm, rendered at ${dpi} dpi`,
     name,
+    pageCount: doc.numPages,
+    loadPage,
+    close: async () => { await task.destroy(); },
   };
 }
 
-export async function loadRaster(file: Blob, name: string): Promise<Scan> {
+export async function loadRaster(file: Blob, name: string): Promise<DocumentSource> {
   const bitmap = await createImageBitmap(file);
   const canvas = pageCanvas(bitmap.width, bitmap.height);
   const ctx = canvas.getContext("2d");
@@ -80,7 +101,7 @@ export async function loadRaster(file: Blob, name: string): Promise<Scan> {
   bitmap.close();
   // A raster file carries no reliable scale in the browser: PNG pHYs and JPEG EXIF
   // resolution are not exposed to canvas, so true size is unavailable and the UI says so.
-  return {
+  const scan: Scan = {
     image: toImageData(canvas),
     mmPerPx: null,
     pageMm: null,
@@ -88,16 +109,25 @@ export async function loadRaster(file: Blob, name: string): Promise<Scan> {
     origin: "image file, no page geometry to read a scale from",
     name,
   };
+  return {
+    name,
+    pageCount: 1,
+    loadPage: async index => {
+      if (index !== 0) throw new Error("this image has one page");
+      return scan;
+    },
+    close: async () => {},
+  };
 }
 
-export async function loadFile(file: File): Promise<Scan> {
+export async function loadFile(file: File): Promise<DocumentSource> {
   if (file.name.toLowerCase().endsWith(".pdf")) {
     return loadPdf(await file.arrayBuffer(), file.name);
   }
   return loadRaster(file, file.name);
 }
 
-export async function loadSample(): Promise<Scan> {
+export async function loadSample(): Promise<DocumentSource> {
   const res = await fetch("sample-scan.pdf");
   if (!res.ok) throw new Error("sample scan is missing");
   return loadPdf(await res.arrayBuffer(), "sample-scan.pdf");
