@@ -4,10 +4,12 @@
   - Verified on 2026-07-31 at `https://cropsize.pages.dev/`: `crossOriginIsolated === true` and `SharedArrayBuffer` is available.
 - [x] 1.2 If it is not isolated, fix the `_headers` file until it is, and record the encode time before and after. This may be a larger speedup than the entire core
   - Not applicable: production is already isolated, so no header change or before/after encode comparison was required. ONNX Runtime Web 1.27 leaves `numThreads` unset before initialisation, then selected four threads on the measured Chrome host's ten logical cores.
-- [ ] 1.3 Record the current baseline on the fixture scans: encode time, total time from opening a file to a crop on screen, and peak memory. Without this there is nothing to claim an improvement against
-  - Partial production baseline on 2026-07-31, Chrome, base-plus fp16/WASM, model files cached but sessions cold:
+- [x] 1.3 Record the current baseline on the fixture scans: encode time, total time from opening a file to a crop on screen, and peak memory. Without this there is nothing to claim an improvement against
+  - Production baseline in Chrome, base-plus fp16/WASM, model files cached but sessions cold:
     - `sample-scan.pdf`: encode 16.255 s; open-to-crop 35.105 s; peak sampled JS heap 262,808,671 bytes (250.6 MiB); decoder passes 52.7 ms and 46.9 ms.
-  - Pending: repeat the same probe for the two private fixtures. Chrome refused local file selection until the ChatGPT extension is granted file-URL access.
+    - `ilkyaz pspt.pdf`: encode 5.347 s; open-to-crop 6.436 s; peak sampled JS heap 276,313,865 bytes (263.5 MiB); decoder 43.8 ms.
+    - `irene pspt.pdf`: encode 5.798 s; open-to-crop 6.809 s; peak sampled JS heap 232,296,157 bytes (221.5 MiB); decoder 65.2 ms.
+  - The sample was measured on 2026-07-31. The private fixtures were measured on 2026-08-01 against production asset `index-DxZ5kF_V.js`, using a disposable Chrome profile after one cache-warming run. All three production runs were cross-origin isolated and used four ONNX Runtime WASM threads on the ten-core host.
 
 ## 2. The golden corpus
 
