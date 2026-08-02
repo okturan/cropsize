@@ -1,0 +1,76 @@
+{
+  "version": 1,
+  "render_dpi": 300,
+  "model": "facebook/sam2.1-hiera-base-plus",
+  "fixtures": [
+    {
+      "id": "sample",
+      "visibility": "public",
+      "file": "public/sample-scan.pdf",
+      "raster_file": "public/sample-scan.png",
+      "raster_sha256": "8492ee5a49288a767997e47d4d282c4054585e19aeb74c9660eac436def0822a",
+      "source_name": "sample-scan.pdf",
+      "sha256": "8dce2d63b5d4f977a44b49aa0258911870a569b2f1059b055f51cbab8620b8aa",
+      "page_mm": [216.0, 297.0],
+      "expected": {
+        "skew_degrees": -2.4,
+        "box": [0.25676205, 0.25057013, 0.74245394, 0.74857469],
+        "measured_mm": [104.9, 147.9],
+        "trim_changed_fraction": 0.00187431
+      },
+      "tolerance": {
+        "skew_degrees": 0.3,
+        "box_mm": 1.0,
+        "measured_mm": 1.0,
+        "trim_changed_fraction": 0.003
+      },
+      "limits": { "trim_changed_fraction": 0.01 }
+    },
+    {
+      "id": "ilkyaz",
+      "visibility": "private",
+      "file": "private/ilkyaz.pdf",
+      "raster_file": "private/ilkyaz.png",
+      "raster_sha256": "37bfd0e588103f0eb7cb0637031d7bd2e1a219861b69961c0f68cce619167312",
+      "source_name": "ilkyaz pspt.pdf",
+      "sha256": "99f60e95cc081f59226f68154f5dfedafe17610cdd1a5bd98df090cf8610c886",
+      "page_mm": [195.1, 142.2],
+      "expected": {
+        "skew_degrees": 1.1,
+        "box": [0.04557292, 0.05952381, 0.94314236, 0.95],
+        "measured_mm": [175.1, 126.7],
+        "trim_changed_fraction": 0.00966213
+      },
+      "tolerance": {
+        "skew_degrees": 0.3,
+        "box_mm": 3.0,
+        "measured_mm": 3.0,
+        "trim_changed_fraction": 0.003
+      },
+      "limits": { "trim_changed_fraction": 0.01 }
+    },
+    {
+      "id": "irene",
+      "visibility": "private",
+      "file": "private/irene.pdf",
+      "raster_file": "private/irene.png",
+      "raster_sha256": "58f2c135011593407bc51223ccbbc2da850cbb2efc123c821de23aa77a57c54c",
+      "source_name": "irene pspt.pdf",
+      "sha256": "49486bf5e24784153ba789dd2f0b88b77d8341b2520912f8377976f3554e7be2",
+      "page_mm": [141.4, 195.2],
+      "expected": {
+        "skew_degrees": -1.4,
+        "box": [0.07305389, 0.04338395, 0.96467066, 0.95010846],
+        "measured_mm": [126.1, 177.0],
+        "trim_changed_fraction": 0.00655236
+      },
+      "tolerance": {
+        "skew_degrees": 0.3,
+        "box_mm": 3.0,
+        "measured_mm": 3.0,
+        "trim_changed_fraction": 0.003
+      },
+      "limits": { "trim_changed_fraction": 0.01 }
+    }
+  ]
+}

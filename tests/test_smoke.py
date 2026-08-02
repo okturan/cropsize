@@ -101,6 +101,21 @@ def test_trim_to_outline_clears_outside_the_shape():
     assert out[5, 5].tolist() == [255, 255, 255]           # outside cleared
 
 
+def test_sam_outline_hull_bridges_every_mask_component():
+    """A passport split at its gutter must keep both pages and the space between them."""
+    import sam_backend
+
+    mask = np.zeros((100, 100), dtype=bool)
+    mask[20:80, 10:42] = True
+    mask[20:80, 58:90] = True
+    outline = sam_backend._contour_outline(mask, 100, 100)
+    content = np.zeros((100, 100, 3), np.uint8)
+    out = P.trim_to_outline(content, outline, lambda x, y: (x * 100, y * 100), feather=0)
+    assert out[50, 25].tolist() == [0, 0, 0]               # first component
+    assert out[50, 75].tolist() == [0, 0, 0]               # second component
+    assert out[50, 50].tolist() == [0, 0, 0]               # gutter bridged by the hull
+
+
 def test_classic_detector_returns_a_sane_box():
     imgs, _ = P.load_pages(make_pdf(300), "scan.pdf")
     det = P.detect_classic(imgs[0])

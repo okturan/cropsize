@@ -88,12 +88,18 @@ OUTLINE_EPS = 0.0002        # ~292 points, max 0.19 mm from the traced boundary
 
 
 def _contour_outline(mask: np.ndarray, sw: int, sh: int):
-    """Trace the mask boundary, kept so rounded corners survive the rectangle fit."""
+    """Trace one hull around every mask component without losing rounded corners.
+
+    A passport spread can split at its gutter. Keeping only the largest contour drops one
+    page; joining every external contour before taking the hull can only grow the mask and
+    bridges that gap. The hull follows the outer arcs from the raw, unclosed mask, so the
+    rounded document corners still survive.
+    """
     m = (mask.astype(np.uint8) * 255)
     cnts, _ = cv2.findContours(m, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
     if not cnts:
         return None
-    big = max(cnts, key=cv2.contourArea)
+    big = cv2.convexHull(np.vstack(cnts))
     eps = OUTLINE_EPS * cv2.arcLength(big, True)
     return [[float(x) / sw, float(y) / sh]
             for x, y in cv2.approxPolyDP(big, eps, True).reshape(-1, 2)]

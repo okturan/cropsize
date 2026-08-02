@@ -13,22 +13,31 @@
 
 ## 2. The golden corpus
 
-- [ ] 2.1 Move the three fixture scans into a shared location both suites can read. The synthetic sample stays the only one safe to publish, the passports stay local
-- [ ] 2.2 Write the fixture table: expected skew, detected box, measured size in millimetres, and the proportion of a crop that trimming changes, with tolerances in millimetres and degrees
-- [ ] 2.3 Assert the table from the existing Python tests, so the corpus is proven against the implementation that already works before anything is ported
-- [ ] 2.4 Set up Vitest in the browser build and assert the same table against the current TypeScript, recording which entries it already fails
+- [x] 2.1 Move the three fixture scans into a shared location both suites can read. The synthetic sample stays the only one safe to publish, the passports stay local
+  - The public sample and derived grayscale raster live under `fixtures/public`. Ignored symlinks under `fixtures/private` point to the original passport PDFs without moving or publishing them; deterministic private rasters are ignored too.
+- [x] 2.2 Write the fixture table: expected skew, detected box, measured size in millimetres, and the proportion of a crop that trimming changes, with tolerances in millimetres and degrees
+  - `fixtures/corpus.json` records source and raster hashes, page geometry, every expected value, physical tolerances and the under-one-percent trim limit.
+- [x] 2.3 Assert the table from the existing Python tests, so the corpus is proven against the implementation that already works before anything is ported
+  - The ordinary Python suite asserts every available hash and skew. `CROPSIZE_RUN_MODEL_FIXTURES=1` adds the box, physical-size and trim contract; all nine model corpus cases pass locally.
+- [x] 2.4 Set up Vitest in the browser build and assert the same table against the current TypeScript, recording which entries it already fails
+  - Vitest Browser Mode runs in headless Chrome. The pre-core TypeScript deskew and physical-scale paths passed all three rows. The opt-in base-plus browser model suite passed every sample column and both private boxes and sizes; only private trim coverage diverged from Python, by 0.005666 on ilkyaz and 0.006224 on irene. Those two known failures remain explicit until trim moves into the core.
 
 ## 3. Spike: deskew in Rust
 
-- [ ] 3.1 Create the `core/` Rust workspace and install wasm-pack
-- [ ] 3.2 Port skew estimation only: the ink threshold, the projection, the border inset, the smoothing that stops zero degrees winning by default
-- [ ] 3.3 Assert the fixture angles in `cargo test`: -2.4 for the sample, 1.1 for ilkyaz, -1.4 for irene
-- [ ] 3.4 Wire wasm-pack into the Vite build and load the module from the browser
-- [ ] 3.5 Pass a full-resolution frame in as a view over WASM memory rather than a copy, and confirm no per-call copy of the frame happens
-- [ ] 3.6 Assert the same fixture angles from Vitest against the built WebAssembly
-- [ ] 3.7 Measure against the TypeScript it replaces, and measure the compressed size the module adds
-- [ ] 3.8 Decide: continue, or fall back to TypeScript in a Web Worker keeping the corpus. Write the decision and the numbers into design.md either way
-- [ ] 3.9 Delete `web/src/lib/deskew.ts` once both suites pass
+- [x] 3.1 Create the `core/` Rust workspace and install wasm-pack
+  - The workspace contains `cropsize-imaging-core`; wasm-pack 0.15.0 and the rustup-managed WASM target are installed, with a portable build wrapper for Homebrew and ordinary rustup layouts.
+- [x] 3.2 Port skew estimation only: the ink threshold, the projection, the border inset, the smoothing that stops zero degrees winning by default
+- [x] 3.3 Assert the fixture angles in `cargo test`: -2.4 for the sample, 1.1 for ilkyaz, -1.4 for irene
+- [x] 3.4 Wire wasm-pack into the Vite build and load the module from the browser
+  - Both `npm test` and `npm run build` build the optimized module before Vite consumes it.
+- [x] 3.5 Pass a full-resolution frame in as a view over WASM memory rather than a copy, and confirm no per-call copy of the frame happens
+  - `RgbaFrame.pixels_view()` exposes the owned allocation. Vitest proves its pointer, length and backing buffer remain stable across repeated estimates.
+- [x] 3.6 Assert the same fixture angles from Vitest against the built WebAssembly
+- [x] 3.7 Measure against the TypeScript it replaces, and measure the compressed size the module adds
+  - Sample median: 50.2 ms TypeScript, 27.2 ms WASM. Core plus glue is about 18 KB gzipped; detailed raw, gzip and Brotli figures are in `design.md`.
+- [x] 3.8 Decide: continue, or fall back to TypeScript in a Web Worker keeping the corpus. Write the decision and the numbers into design.md either way
+  - Continue with Rust: both accuracy and performance gates passed with negligible payload cost.
+- [x] 3.9 Delete `web/src/lib/deskew.ts` once both suites pass
 
 ## 4. Grow the core
 

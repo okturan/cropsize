@@ -7,3 +7,7 @@ __pycache__/
 *.egg-info/
 site/editor.png
 site/output.png
+
+# Real passport scans are local golden fixtures, never repository content. The manifest,
+# hashes and expected numbers are tracked; each developer supplies these two ignored links.
+/fixtures/private/*

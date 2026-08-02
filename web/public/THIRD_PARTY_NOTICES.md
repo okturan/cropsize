@@ -26,7 +26,7 @@ The optional Python model path uses `facebook/sam2.1-hiera-base-plus`, also fetc
 
 ## Project assets
 
-`docs/sample-scan.pdf`, its browser copy, and the documentation screenshots are synthetic fixtures created for CropSize. They are labelled as specimen material and contain no real identity document or personal record.
+`fixtures/public/sample-scan.pdf`, its browser link, and the documentation screenshots are synthetic fixtures created for CropSize. They are labelled as specimen material and contain no real identity document or personal record.
 
 ## Licence texts
 

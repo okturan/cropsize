@@ -7,7 +7,8 @@ import { detect, type Box } from "./lib/detect";
 import {
   loadFile, loadSample, type DocumentSource, type Scan,
 } from "./lib/source";
-import { estimateSkew, rotate, quarterTurns } from "./lib/deskew";
+import { estimateSkew } from "./lib/imaging-core";
+import { rotate, quarterTurns } from "./lib/transform";
 import { applyTone } from "./lib/tone";
 import {
   cropCanvas, exportPdf, measure, plan, trimToMask,
@@ -180,7 +181,7 @@ async function loadFreshPage(index: number) {
   // Straighten before anything else, the same order the Python build uses, so the crop box
   // and the measurement both refer to the upright frame.
   showProgress(true, "Measuring the tilt");
-  S.skew = estimateSkew(scan.image);
+  S.skew = await estimateSkew(scan.image);
   $<HTMLInputElement>("skew").value = String(S.skew);
   $("skewOut").textContent = S.skew.toFixed(1);
   S.scan = { ...scan, image: rotate(scan.image, S.skew) };

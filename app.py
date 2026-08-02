@@ -46,7 +46,7 @@ def _meta(doc_id: str, page: int) -> P.PageMeta:
     return entry["metas"][page]
 
 
-SAMPLE_SCAN = Path(__file__).resolve().parent / "docs" / "sample-scan.pdf"
+SAMPLE_SCAN = Path(__file__).resolve().parent / "fixtures" / "public" / "sample-scan.pdf"
 
 
 def _store(data: bytes, filename: str) -> dict:

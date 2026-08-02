@@ -1,6 +1,6 @@
 ## Context
 
-cropsize exists twice. The Python build is complete and has 16 tests. The browser build is what the public URL serves, and it is a hand port with no fixture suite. The port has already produced three defects that the original never had:
+cropsize exists twice. The Python build is complete and now has 26 collected tests. The browser build is what the public URL serves, and it began as a hand port with no fixture suite. The port has already produced three defects that the original never had:
 
 | defect | cause | how it was caught |
 | --- | --- | --- |
@@ -19,7 +19,7 @@ Relevant measured facts carried in from earlier work and the production gate:
 - Production is cross-origin isolated. ONNX Runtime Web 1.27 leaves `ort.env.wasm.numThreads` unset until its first WASM session, then resolved it to four threads on the measured host's ten logical cores. The browser/native gap is not a one-thread header failure.
 - The browser holds three full-resolution frames, roughly 110 MB for a 300 dpi A4.
 - `snapEdges` allocates a 36 MB float array per call. `refreshOutput` re-crops and re-trims about 3M pixels on every settings change.
-- Known-good answers: deskew of -2.4 on the sample, 1.1 on ilkyaz, -1.4 on irene. Measured sizes of 104.9 by 147.9 mm on the sample against a true 105 by 148, and 127.2 by 174.9 mm on ilkyaz against a true 125 by 176.
+- Known-good answers: deskew of -2.4 on the sample, 1.1 on ilkyaz, -1.4 on irene. Measured sizes of 104.9 by 147.9 mm on the sample against a true 105 by 148, and 175.1 by 126.7 mm on the landscape ilkyaz scan.
 
 ## Goals / Non-Goals
 
@@ -51,6 +51,17 @@ The honest cost is that every future change to the maths happens in Rust. That i
 
 Deskew is the right first function: it is self-contained, it has no dependencies on the rest of the core, and it is the function that has already broken twice in ways that were invisible on screen. We know its correct answers to two decimals on three fixtures. If the Rust port reproduces -2.4, 1.1 and -1.4 and runs faster than the JavaScript, the approach is proven on the hardest evidence available. If it does not, we have lost a day and learned it early.
 
+### Spike result: continue with Rust
+
+The kill switch was evaluated on 2026-08-02 and the spike passed:
+
+- Native `cargo test` and browser Vitest both reproduce all three fixture angles within the 0.3 degree contract.
+- In headless Chrome on the 2551 by 3508 sample, seven warm repetitions measured a 50.2 ms median for TypeScript and 27.2 ms for WebAssembly, a 1.85 times speedup. A second run measured 49.0 ms and 30.4 ms; the direction is stable even though browser timing varies.
+- JavaScript writes the frame once through a live `Uint8Array` view over the core allocation. The browser test confirms that repeated estimates retain the same pointer, byte length and underlying WebAssembly buffer.
+- The optimized module is 33,838 bytes raw, 15,538 bytes with gzip and 13,609 bytes with Brotli. Its generated JavaScript glue is 7,427 bytes raw and 2,197 bytes with gzip; together they are about 18 KB gzipped, far below the 2 MB ceiling.
+
+The decision is to continue growing the Rust core. `web/src/lib/deskew.ts` was removed after the native and browser corpus suites passed, so skew estimation again has one implementation.
+
 ### The core owns geometry and pixels, JavaScript owns everything else
 
 ```
@@ -75,7 +86,7 @@ Images pass as `Uint8ClampedArray` views over WASM linear memory, allocated once
 
 ### Fixtures are the contract, not prose
 
-The golden corpus is checked in as small fixture scans plus a table of expected values: skew angle, detected box, measured millimetres, and the fraction of a crop that trimming changes. Rust asserts it in `cargo test`. The browser asserts it in Vitest against the built WASM. Any change that moves a number has to move the table too, deliberately and in review.
+The golden corpus has one checked-in synthetic scan plus a tracked table of expected values: skew angle, detected box, measured millimetres, and the fraction of a crop that trimming changes. The two passport PDFs remain outside Git; their hashes and stable local names are tracked, and ignored symlinks make them available to every local suite. Rust asserts the table in `cargo test`. The browser asserts it in Vitest against the built WASM. Any change that moves a number has to move the table too, deliberately and in review.
 
 ### Objects mode ships in two stages
 
