@@ -39,7 +39,7 @@
         "skew_degrees": 1.1,
         "box": [0.04557292, 0.05952381, 0.94314236, 0.95],
         "measured_mm": [175.1, 126.7],
-        "trim_changed_fraction": 0.00966213
+        "trim_changed_fraction": 0.00682933
       },
       "tolerance": {
         "skew_degrees": 0.3,

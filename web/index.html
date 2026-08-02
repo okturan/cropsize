@@ -54,6 +54,7 @@
       <button id="rot180" title="turn it the other way up">180°</button>
     </span>
     <button id="redetect">Detect again</button>
+    <button id="findSeveral">Find several items</button>
     <button id="startOver">Start over</button>
     <span class="tbSep"></span>
     <label class="inlineField" title="bigger is tighter on awkward scans and slower to fetch">
@@ -71,11 +72,24 @@
     <span id="note" class="note tbNote"></span>
   </div>
 
+  <div id="objPanel" class="objPanel" hidden>
+    <strong id="objCount"></strong>
+    <span class="muted small">Each item keeps its own angle. Select one to preview it; the PDF includes all listed items.</span>
+    <ul id="objList" class="objList"></ul>
+    <button id="mergeObjects" disabled title="tick two or more items first">Merge selected</button>
+  </div>
+
   <div class="split" id="split">
     <section class="pane" id="paneIn">
       <div class="paneHead"><h2>Scan</h2>
-        <span class="paneHint">drag the box, drag a corner, double click to reset</span></div>
-      <div class="paneBody"><canvas id="canvas"></canvas></div>
+        <span class="viewControls" role="group" aria-label="scan view">
+          <button id="zoomOut" title="zoom out" aria-label="Zoom out">−</button>
+          <button id="zoomReset" title="fit the scan in the pane">Fit</button>
+          <button id="zoomIn" title="zoom in" aria-label="Zoom in">+</button>
+          <button id="panTool" aria-pressed="false" title="drag to pan the zoomed scan">Pan</button>
+        </span>
+        <span class="paneHint">drag the crop or a corner; double click to reset</span></div>
+      <div class="paneBody scanBody" id="scanViewport"><canvas id="canvas"></canvas></div>
     </section>
     <section class="pane" id="paneOut">
       <div class="paneHead"><h2>What you will get</h2>
@@ -119,6 +133,17 @@
       </select>
       <label class="check"><input type="checkbox" id="landscape"> landscape</label>
       <span class="unit"><input type="number" id="margin" value="8" min="0" max="40" step="1"> mm margin</span>
+    </div>
+
+    <div class="setGroup">
+      <label class="inlineField">Resolution
+        <select id="resolution">
+          <option value="source" selected>Match source</option>
+          <option value="150">150 dpi</option>
+          <option value="300">300 dpi</option>
+          <option value="600">600 dpi</option>
+        </select>
+      </label>
     </div>
 
     <div class="setGroup readout">

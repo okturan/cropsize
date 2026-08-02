@@ -1,12 +1,7 @@
-/**
- * Cropping, laying out on a sheet, and writing the PDF.
- *
- * Every size here is millimetres until the last moment, because that is the only unit the
- * person printing the thing cares about. Pixels appear once, to decide how many of them a
- * given number of millimetres needs at the export resolution.
- */
+/** Sheet composition and PDF writing; numeric imaging/layout decisions live in the core. */
 import { PDFDocument } from "pdf-lib";
 import type { Box } from "./detect";
+import { measureBox, planLayout, trimImageToMask } from "./imaging-core";
 import type { Scan } from "./source";
 
 export const SHEETS = {
@@ -21,8 +16,9 @@ export const PRESETS = {
   "id-card": { label: "ID or bank card", mm: [85.6, 54] },
 } as const;
 export type PresetName = keyof typeof PRESETS;
-
 export type Fit = "true" | "preset" | "fill";
+export type OutputDpi = "source" | 150 | 300 | 600;
+export type TrimMask = { mask: Float32Array; size: number; box: Box };
 
 export interface Layout {
   sheet: SheetName;
@@ -30,76 +26,16 @@ export interface Layout {
   fit: Fit;
   preset: PresetName;
   marginMm: number;
-  trim?: { mask: Float32Array; size: number; box: Box } | null;
+  outputDpi: OutputDpi;
 }
 
-/**
- * Clear whatever sits outside the traced document. A crop has to be a rectangle, so the
- * corners of a rounded document pick up the platen or the sleeve behind it. The mask knows
- * where the paper stops, so use it rather than accept the square corners.
- */
-export function trimToMask(
+export async function trimToMask(
   canvas: OffscreenCanvas, box: Box, mask: Float32Array, size: number, maskBox = box,
-): OffscreenCanvas {
-  const ctx = canvas.getContext("2d")!;
-  const img = ctx.getImageData(0, 0, canvas.width, canvas.height);
-  const d = img.data;
-  const at = (x: number, y: number) =>
-    mask[Math.min(size - 1, Math.max(0, y)) * size + Math.min(size - 1, Math.max(0, x))] ?? -1;
-
-  // When this is still the detector's crop, fit the outline to that crop by its own bounds.
-  // The box is snapped to the strongest edge after segmentation, so the two disagree by a
-  // millimetre or two. Anchoring here keeps the rounded corners aligned on the automatic
-  // result. Once a person moves or resizes the crop, sample the mask in full-frame
-  // coordinates instead. Stretching the old outline over the new box is the bug this split
-  // prevents.
-  let hx0 = size, hy0 = size, hx1 = -1, hy1 = -1;
-  for (let y = 0; y < size; y++) {
-    for (let x = 0; x < size; x++) {
-      if ((mask[y * size + x] ?? -1) > 0) {
-        if (x < hx0) hx0 = x;
-        if (x > hx1) hx1 = x;
-        if (y < hy0) hy0 = y;
-        if (y > hy1) hy1 = y;
-      }
-    }
-  }
-  if (hx1 < hx0 || hy1 < hy0) return canvas;
-  const spanX = hx1 - hx0 + 1, spanY = hy1 - hy0 + 1;
-  const automatic = Math.abs(box.x0 - maskBox.x0) < 1e-9
-    && Math.abs(box.y0 - maskBox.y0) < 1e-9
-    && Math.abs(box.x1 - maskBox.x1) < 1e-9
-    && Math.abs(box.y1 - maskBox.y1) < 1e-9;
-
-  for (let y = 0; y < canvas.height; y++) {
-    const ny = (y + 0.5) / canvas.height;
-    const my = automatic
-      ? hy0 + ny * spanY - 0.5
-      : (box.y0 + ny * (box.y1 - box.y0)) * size - 0.5;
-    const fy = Math.floor(my), wy = my - fy;
-    for (let x = 0; x < canvas.width; x++) {
-      const nx = (x + 0.5) / canvas.width;
-      const mx = automatic
-        ? hx0 + nx * spanX - 0.5
-        : (box.x0 + nx * (box.x1 - box.x0)) * size - 0.5;
-      const fx = Math.floor(mx), wx = mx - fx;
-      // Bilinear, so the boundary is a soft edge rather than a staircase of mask pixels,
-      // each one of which is several millimetres across at print size.
-      const v = (at(fx, fy) * (1 - wx) + at(fx + 1, fy) * wx) * (1 - wy)
-              + (at(fx, fy + 1) * (1 - wx) + at(fx + 1, fy + 1) * wx) * wy;
-      if (v >= 0.35) continue;                       // comfortably inside
-      const i = (y * canvas.width + x) * 4;
-      if (v <= -0.35) {                              // comfortably outside
-        d[i] = 255; d[i + 1] = 255; d[i + 2] = 255;
-      } else {
-        const a = (v + 0.35) / 0.7;                  // blend across the boundary
-        d[i] = (d[i] ?? 0) * a + 255 * (1 - a);
-        d[i + 1] = (d[i + 1] ?? 0) * a + 255 * (1 - a);
-        d[i + 2] = (d[i + 2] ?? 0) * a + 255 * (1 - a);
-      }
-    }
-  }
-  ctx.putImageData(img, 0, 0);
+): Promise<OffscreenCanvas> {
+  const context = canvas.getContext("2d")!;
+  const input = context.getImageData(0, 0, canvas.width, canvas.height);
+  const output = await trimImageToMask(input, box, mask, size, maskBox);
+  context.putImageData(output, 0, 0);
   return canvas;
 }
 
@@ -108,108 +44,126 @@ export function cropCanvas(img: ImageData, box: Box): OffscreenCanvas {
   const y0 = Math.max(0, Math.round(box.y0 * img.height));
   const x1 = Math.min(img.width, Math.round(box.x1 * img.width));
   const y1 = Math.min(img.height, Math.round(box.y1 * img.height));
-  const w = Math.max(1, x1 - x0), h = Math.max(1, y1 - y0);
-
-  const src = new OffscreenCanvas(img.width, img.height);
-  src.getContext("2d")!.putImageData(img, 0, 0);
-  const out = new OffscreenCanvas(w, h);
-  out.getContext("2d")!.drawImage(src, x0, y0, w, h, 0, 0, w, h);
-  return out;
+  const width = Math.max(1, x1 - x0), height = Math.max(1, y1 - y0);
+  const source = new OffscreenCanvas(img.width, img.height);
+  source.getContext("2d")!.putImageData(img, 0, 0);
+  const output = new OffscreenCanvas(width, height);
+  output.getContext("2d")!.drawImage(source, x0, y0, width, height, 0, 0, width, height);
+  return output;
 }
 
-/** Physical size of a crop, when the source told us its scale. */
-export function measure(img: ImageData, box: Box, mmPerPx: number | null): [number, number] | null {
-  if (!mmPerPx) return null;
-  const w = (box.x1 - box.x0) * img.width * mmPerPx;
-  const h = (box.y1 - box.y0) * img.height * mmPerPx;
-  return [Math.round(w * 10) / 10, Math.round(h * 10) / 10];
+export function measure(
+  img: ImageData, box: Box, mmPerPx: number | null,
+): [number, number] | null {
+  return measureBox(img.width, img.height, box, mmPerPx);
 }
 
 export interface Placed {
   sheetMm: [number, number] | null;
+  pageMm: [number, number];
   contentMm: [number, number];
+  contentOriginMm: [number, number];
   note: string;
 }
 
-/** Work out the printed size without drawing anything, for the readout. */
 export function plan(scan: Scan, box: Box, layout: Layout): Placed {
-  const crop = {
-    w: (box.x1 - box.x0) * scan.image.width,
-    h: (box.y1 - box.y0) * scan.image.height,
-  };
-  const aspect = crop.h / crop.w;
   const sheetMm: [number, number] | null = layout.sheet === "none"
     ? null
     : layout.landscape
       ? [SHEETS[layout.sheet][1], SHEETS[layout.sheet][0]]
       : [SHEETS[layout.sheet][0], SHEETS[layout.sheet][1]];
-
-  const measured = measure(scan.image, box, scan.mmPerPx);
-  let contentMm: [number, number];
-  let note: string;
-
-  if (layout.fit === "true" && measured) {
-    contentMm = measured;
-    note = "as measured on the scan";
-  } else if (layout.fit === "preset") {
-    const [pw, ph] = PRESETS[layout.preset].mm;
-    // A preset is a box, not just a width. An ID-3 page and an ID-3 spread are both 125 mm
-    // wide, so matching on width alone would make the two choices identical.
-    let w = pw, h = pw * aspect;
-    if (h > ph) { h = ph; w = ph / aspect; }
-    contentMm = [Math.round(w * 10) / 10, Math.round(h * 10) / 10];
-    note = `forced to ${PRESETS[layout.preset].label}`;
-  } else if (sheetMm) {
-    const availW = sheetMm[0] - 2 * layout.marginMm;
-    const availH = sheetMm[1] - 2 * layout.marginMm;
-    const s = Math.min(availW / crop.w, availH / crop.h);
-    contentMm = [Math.round(crop.w * s * 10) / 10, Math.round(crop.h * s * 10) / 10];
-    note = "filling the sheet, not to scale";
-  } else {
-    contentMm = measured ?? [crop.w, crop.h];
-    note = measured ? "as measured on the scan" : "no scale available";
-  }
-
-  if (sheetMm) {                                    // never let content exceed the paper
-    const s = Math.min(sheetMm[0] / contentMm[0], sheetMm[1] / contentMm[1], 1);
-    if (s < 1) contentMm = [Math.round(contentMm[0] * s * 10) / 10, Math.round(contentMm[1] * s * 10) / 10];
-  }
-  return { sheetMm, contentMm, note };
+  const preset = PRESETS[layout.preset];
+  const fit = layout.fit === "true" ? 0 : layout.fit === "preset" ? 1 : 2;
+  const result = planLayout({
+    width: scan.image.width,
+    height: scan.image.height,
+    box,
+    mmPerPx: scan.mmPerPx,
+    sheetMm,
+    fit,
+    presetMm: [...preset.mm],
+    marginMm: layout.marginMm,
+  });
+  const note = result.noteCode === 0
+    ? "as measured on the scan"
+    : result.noteCode === 1
+      ? `forced to ${preset.label}`
+      : result.noteCode === 2 ? "filling the sheet, not to scale" : "no scale available";
+  const pageMm: [number, number] = sheetMm ?? [
+    result.contentMm[0] + 2 * layout.marginMm,
+    result.contentMm[1] + 2 * layout.marginMm,
+  ];
+  return {
+    sheetMm,
+    pageMm,
+    contentMm: result.contentMm,
+    contentOriginMm: [
+      (pageMm[0] - result.contentMm[0]) / 2,
+      (pageMm[1] - result.contentMm[1]) / 2,
+    ],
+    note,
+  };
 }
 
 const MM_TO_PT = 72 / 25.4;
 
+export function outputPixelSize(
+  scan: Scan, box: Box, layout: Layout,
+): [number, number] {
+  if (layout.outputDpi === "source") {
+    const x0 = Math.max(0, Math.round(box.x0 * scan.image.width));
+    const y0 = Math.max(0, Math.round(box.y0 * scan.image.height));
+    const x1 = Math.min(scan.image.width, Math.round(box.x1 * scan.image.width));
+    const y1 = Math.min(scan.image.height, Math.round(box.y1 * scan.image.height));
+    return [Math.max(1, x1 - x0), Math.max(1, y1 - y0)];
+  }
+  const { contentMm } = plan(scan, box, layout);
+  return [
+    Math.max(1, Math.round((contentMm[0] / 25.4) * layout.outputDpi)),
+    Math.max(1, Math.round((contentMm[1] / 25.4) * layout.outputDpi)),
+  ];
+}
+
 export async function exportPdf(
-  scan: Scan, box: Box, layout: Layout, dpi = 300,
+  scan: Scan, box: Box, layout: Layout, trim: TrimMask | null = null,
 ): Promise<Blob> {
-  const { sheetMm, contentMm } = plan(scan, box, layout);
+  const { pageMm, contentMm, contentOriginMm } = plan(scan, box, layout);
   let crop = cropCanvas(scan.image, box);
-  if (layout.trim) {
-    crop = trimToMask(crop, box, layout.trim.mask, layout.trim.size, layout.trim.box);
+  if (trim) {
+    crop = await trimToMask(crop, box, trim.mask, trim.size, trim.box);
   }
 
-  // Resample once, to exactly the pixels the printed size needs at the export resolution.
-  const wPx = Math.max(1, Math.round((contentMm[0] / 25.4) * dpi));
-  const hPx = Math.max(1, Math.round((contentMm[1] / 25.4) * dpi));
-  const scaled = new OffscreenCanvas(wPx, hPx);
-  const sctx = scaled.getContext("2d")!;
-  sctx.imageSmoothingQuality = "high";
-  sctx.drawImage(crop, 0, 0, wPx, hPx);
+  const [widthPx, heightPx] = outputPixelSize(scan, box, layout);
+  const scaled = new OffscreenCanvas(widthPx, heightPx);
+  const context = scaled.getContext("2d")!;
+  context.imageSmoothingQuality = "high";
+  context.drawImage(crop, 0, 0, widthPx, heightPx);
   const png = await scaled.convertToBlob({ type: "image/png" });
 
   const pdf = await PDFDocument.create();
   const embedded = await pdf.embedPng(await png.arrayBuffer());
-  const pageMm = sheetMm ?? [contentMm[0] + 2 * layout.marginMm, contentMm[1] + 2 * layout.marginMm];
   const page = pdf.addPage([pageMm[0] * MM_TO_PT, pageMm[1] * MM_TO_PT]);
   page.drawImage(embedded, {
-    x: (pageMm[0] - contentMm[0]) / 2 * MM_TO_PT,
-    y: (pageMm[1] - contentMm[1]) / 2 * MM_TO_PT,
+    x: contentOriginMm[0] * MM_TO_PT,
+    y: contentOriginMm[1] * MM_TO_PT,
     width: contentMm[0] * MM_TO_PT,
     height: contentMm[1] * MM_TO_PT,
   });
-  // pdf-lib returns Uint8Array<ArrayBufferLike>; copy into a plain ArrayBuffer for Blob.
   const bytes = await pdf.save();
-  const buf = new ArrayBuffer(bytes.byteLength);
-  new Uint8Array(buf).set(bytes);
-  return new Blob([buf], { type: "application/pdf" });
+  const buffer = new ArrayBuffer(bytes.byteLength);
+  new Uint8Array(buffer).set(bytes);
+  return new Blob([buffer], { type: "application/pdf" });
+}
+
+export async function mergePdfPages(blobs: Blob[]): Promise<Blob> {
+  const output = await PDFDocument.create();
+  for (const blob of blobs) {
+    const source = await PDFDocument.load(await blob.arrayBuffer());
+    const pages = await output.copyPages(source, source.getPageIndices());
+    for (const page of pages) output.addPage(page);
+  }
+  const bytes = await output.save();
+  const buffer = new ArrayBuffer(bytes.byteLength);
+  new Uint8Array(buffer).set(bytes);
+  return new Blob([buffer], { type: "application/pdf" });
 }

@@ -10,7 +10,7 @@ cropsize exists twice. The Python build is complete and now has 26 collected tes
 
 None of these were visible by looking at the screen. All were found by comparing numbers against an implementation that already worked.
 
-Meanwhile the browser cannot do objects mode, which is the largest remaining feature gap, and objects mode needs a computer vision layer that the browser build does not have at all. `@techstark/opencv-js` was added and then removed during the public release cleanup.
+At proposal time the browser could not do objects mode, which was the largest remaining feature gap, and objects mode needed a computer vision layer that the browser build did not have at all. `@techstark/opencv-js` was added and then removed during the public release cleanup. The applied change now supplies that layer through the focused Rust core.
 
 Relevant measured facts carried in from earlier work and the production gate:
 
@@ -18,7 +18,7 @@ Relevant measured facts carried in from earlier work and the production gate:
 - Production browser baseline on 2026-07-31, Chrome, base-plus fp16/WASM, model files cached and sessions cold: encoder 16.255 s; decoder passes 52.7 ms and 46.9 ms; 35.105 s from opening the sample to seeing the crop; peak sampled JavaScript heap 250.6 MiB.
 - Production is cross-origin isolated. ONNX Runtime Web 1.27 leaves `ort.env.wasm.numThreads` unset until its first WASM session, then resolved it to four threads on the measured host's ten logical cores. The browser/native gap is not a one-thread header failure.
 - The browser holds three full-resolution frames, roughly 110 MB for a 300 dpi A4.
-- `snapEdges` allocates a 36 MB float array per call. `refreshOutput` re-crops and re-trims about 3M pixels on every settings change.
+- Before the core port, `snapEdges` allocated a 36 MB float array per call and `refreshOutput` re-cropped and re-trimmed about 3M pixels on every settings change.
 - Known-good answers: deskew of -2.4 on the sample, 1.1 on ilkyaz, -1.4 on irene. Measured sizes of 104.9 by 147.9 mm on the sample against a true 105 by 148, and 175.1 by 126.7 mm on the landscape ilkyaz scan.
 
 ## Goals / Non-Goals
@@ -32,7 +32,7 @@ Relevant measured facts carried in from earlier work and the production gate:
 
 **Non-Goals:**
 
-- Rewriting the Python build on the core. Possible later through pyo3, deliberately not now.
+- Rewriting the Python build on the core. The Python app remains a local reference build; pyo3 packaging is deliberately not part of this change.
 - Changing what the tool produces. Same exports, same measurements, same URL.
 - A general image processing library. Only the primitives this pipeline actually calls.
 - Perspective correction. Still out of scope, as it has been throughout.
@@ -90,7 +90,13 @@ The golden corpus has one checked-in synthetic scan plus a tracked table of expe
 
 ### Objects mode ships in two stages
 
-Stage one is find several items, give each its own rotation, export a page each. Stage two is the alternatives cycle and merge. Stage one is roughly a third of the work and delivers most of the value, and it is worth shipping before committing to the interaction design of stage two.
+Stage one was implemented and verified first: find several items, give each its own rotation, export a page each. Stage two then added measured overlapping choices and reversible merge. Keeping the stages separate made the synthetic flatbed contract pass before the sleeve interaction was added.
+
+### The Python build stays independent
+
+The browser is the product and the Rust core is the source of truth for new imaging maths. The local Python app will not adopt this core through pyo3 in this change. Shipping a native extension would add platform wheels, Python ABI support and another release path for a build that is now the lab bench rather than the public product.
+
+The Python fixture suite remains valuable as an independent reference. Both builds read the same corpus, so a numeric disagreement stays visible instead of being hidden behind shared code. New browser product behavior goes into the core; the Python build may drift in features, but changes to its recorded fixture answers must still be deliberate. Revisit pyo3 only if the local app becomes a supported product again.
 
 ## Risks / Trade-offs
 
@@ -100,11 +106,15 @@ Stage one is find several items, give each its own rotation, export a page each.
 
 **WASM bundle size** → A focused crate should be well under `opencv-js` at roughly 10 MB, but this is an assumption until measured. Budget: the core must stay under 2 MB compressed, or the download argument that justified it disappears.
 
+Measured after the complete primitive layer on 2026-08-02: the optimized core is 94,650 bytes raw, 39,914 bytes with gzip and 33,509 bytes with Brotli. The exact removed dependency, `@techstark/opencv-js@5.0.0-release.1`, is a 4,031,133-byte npm tarball and 14,731,296 bytes unpacked. The focused core is about one hundredth of the compressed package and uses 2 percent of its own 2 MB ceiling.
+
+After the objects-mode edge refinement and merge geometry were added, the final production module is 96,929 bytes raw, 40,879 bytes with gzip and 34,180 bytes with Brotli.
+
 **Porting introduces its own drift** → Exactly the failure being fixed, so the golden corpus lands with the spike rather than after it. The spike is not complete until the fixture table passes.
 
 **Numeric differences between OpenCV and a Rust reimplementation** → Contour tracing and minimum-area rectangle have many valid implementations that differ in edge cases. Tolerances in the fixture table need to be stated as physical quantities, in millimetres and degrees, rather than exact pixel equality.
 
-**Objects mode may not be what browser users want** → It was built for the Python build and has never been exercised by anyone but us. Stage one first, and watch whether it gets used before building the alternatives cycle.
+**Objects mode may not be what browser users want** → The work was kept in two independently tested stages. The browser now has the complete behavior, but deployment telemetry or user reports should decide whether it deserves further prominence.
 
 ## Migration Plan
 
@@ -114,13 +124,13 @@ Stage one is find several items, give each its own rotation, export a page each.
 4. Add the computer vision primitives with no consumer yet, tested in Rust alone.
 5. Objects mode stage one on top of them.
 6. Parity items that do not need the core, in any order: multi-page navigation, zoom and pan, output resolution.
-7. Objects mode stage two.
+7. Objects mode stage two: measured alternatives, candidate selection and reversible merge.
 
-Rollback at any point is to keep the TypeScript implementation alongside and switch back, since each step replaces one function and both can coexist behind the same signature.
+Rollback is a Git revert to the last fixture-passing core revision. The TypeScript counterparts were deleted as their replacements passed, so the repository does not retain a quiet second implementation.
 
-## Open Questions
+## Resolved Questions
 
-- Does objects mode in the browser mean the full Python behaviour, including the alternatives cycle and merge, or is stage one sufficient?
-- Is multi-page a real need, or only a correctness fix so it stops silently reading page one with nothing said?
-- Is 2 MB the right ceiling for the core, given the model download is already 163 MB and dwarfs it?
-- Should the Python build eventually adopt the core through pyo3, or is it acceptable for the lab bench to drift once it is no longer the product?
+- Objects mode includes the full Python behavior: separate items, per-item rotation, measured alternatives and reversible merge.
+- Multi-page navigation is both a correctness fix and part of the supported browser workflow. Every page remains reachable and keeps its own state.
+- The 2 MB compressed ceiling stays as a conservative guard. The finished primitive layer is 33,509 bytes with Brotli, so the exact ceiling is not a live trade-off.
+- The Python lab bench is allowed to drift in features. It keeps asserting the shared corpus, but it does not take on pyo3 packaging unless it becomes a supported product again.

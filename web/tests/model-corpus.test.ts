@@ -78,20 +78,12 @@ for (const row of corpus.fixtures) {
         const before = beforeCanvas.getContext("2d")!
           .getImageData(0, 0, beforeCanvas.width, beforeCanvas.height);
         const afterCanvas = cropCanvas(straight, detected.box);
-        trimToMask(afterCanvas, detected.box, detected.mask, detected.maskSize, detected.box);
+        await trimToMask(afterCanvas, detected.box, detected.mask, detected.maskSize, detected.box);
         const after = afterCanvas.getContext("2d")!
           .getImageData(0, 0, afterCanvas.width, afterCanvas.height);
         const trim = changedFraction(before, after);
         const trimDifference = Math.abs(trim - row.expected.trim_changed_fraction);
-        // This is the recorded pre-core browser baseline. Both private scans disagree with
-        // Python only in trim coverage; keeping this assertion explicit prevents the known
-        // drift from being mistaken for a fully passing port before trim moves into Rust.
-        if (row.id === "ilkyaz" || row.id === "irene") {
-          console.warn("known browser trim divergence", row.id, { trim, trimDifference });
-          expect(trimDifference).toBeGreaterThan(row.tolerance.trim_changed_fraction);
-        } else {
-          expect(trimDifference).toBeLessThanOrEqual(row.tolerance.trim_changed_fraction);
-        }
+        expect(trimDifference).toBeLessThanOrEqual(row.tolerance.trim_changed_fraction);
         expect(trim).toBeLessThan(row.limits.trim_changed_fraction);
       } finally {
         await source.close();

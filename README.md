@@ -71,11 +71,15 @@ after that. Nothing you scan ever leaves your machine.
 
 ## Using it
 
-The public browser finds one document on the selected page and produces one output page.
-For a multi-page PDF, choose any page from the page selector; each visited page keeps its own
-crop, quarter-turn rotation and straightening angle. Drag the box or one of its corners if
-the automatic crop needs help. Several-items mode, candidate cycling, merge and per-item
-rotation exist in the local Python editor, but they have not reached the browser build.
+The browser starts in one-document mode. For a multi-page PDF, choose any page from the page
+selector; each visited page keeps its own crop, quarter-turn rotation and straightening
+angle. Drag the box or one of its corners if the automatic crop needs help. Zoom from the
+scan header, then turn on Pan when you want to move around without changing the crop.
+
+Use **Find several items** for a flatbed holding more than one card, photograph or page. The
+model encodes the scan once, lists each item with its own size and angle, and exports one PDF
+page per item. If SAM proposes several overlapping boundaries, the choices are shown with
+their measurements. Tick two rows to merge them; the merged row keeps an undo button.
 
 Then choose how big it should print. **Keep real size** uses the measurement it took off the
 scan. **Scale to a known size** forces an exact width, with presets for a passport spread, a
@@ -89,8 +93,9 @@ around it.
 Contrast is off by default. What you export is what you scanned. Turn it up when you want
 legibility rather than fidelity.
 
-The local Python editor also has the `C`, `S` and `H` tools plus zoom and pan. Those keyboard
-controls are not present in the public browser yet.
+Export resolution defaults to the crop's source pixels. You can choose 150, 300 or 600 dpi
+when a receiving system needs a specific raster resolution; the physical size in the PDF
+does not change.
 
 ## How accurate is it
 
@@ -133,8 +138,9 @@ Skew is measured two independent ways and they agree to a quarter of a degree.
 It corrects rotation, not perspective. Flatbed scans have no keystone to fix, so a photo
 taken at an angle with a phone will not be squared up.
 
-The browser handles one detected object. It does not yet offer several items, overlapping
-candidates or merge. The local Python editor has those controls.
+The first browser run is not quick. In the recorded production run, the cached base-plus
+model still took 16.255 seconds to encode the sample. The Rust imaging core fixes parity and
+keeps the geometry in one tested implementation; it does not make ONNX inference fast.
 
 Browser tabs do not share scans. The local Python server serializes access to its one cached
 predictor so concurrent requests cannot replace each other's images.
@@ -146,8 +152,10 @@ app.py            HTTP routes
 pipeline.py       loading, transforms, deskew, tone, page layout
 sam_backend.py    Segment Anything 2, imported only if installed
 static/           the editor, plain JavaScript and a canvas
-tests/            16 tests, no model needed
-web/              the browser build, deployed to cropsize.pages.dev
+tests/            Python reference and corpus tests
+core/             Rust imaging core, compiled to WebAssembly for the browser
+fixtures/         shared public corpus plus ignored links to local private scans
+web/              browser product and its real-Chrome test suite
 site/             an older static landing page, kept for reference
 ```
 
@@ -168,8 +176,19 @@ They cover what would go wrong quietly rather than loudly. Real size surviving a
 same measurement at every resolution. Page geometry to half a millimetre. Two presets that
 share a width behaving differently, which they did not until a test caught it.
 
-Those 16 tests exercise the Python implementation. The browser fixture suite is planned in
-`openspec/changes/browser-core-and-parity/` but has not been added yet.
+The Rust suite pins the imaging primitives and corpus angles. Vitest runs in real headless
+Chrome against the built WebAssembly, including a public three-item flatbed. The slower model
+checks are opt in:
+
+```bash
+cd web
+npm test
+CROPSIZE_RUN_BROWSER_MODEL_FIXTURES=1 npm test
+```
+
+The two passport files stay outside Git. Their hashes and expected measurements are tracked;
+ignored links under `fixtures/private/` make them available to local corpus runs without
+copying or publishing the originals.
 
 ## Licence
 

@@ -3,23 +3,28 @@
  * the PDF's own geometry, and writes a PDF at that size. No server, no upload.
  */
 import { Sam } from "./lib/sam";
-import { detect, type Box } from "./lib/detect";
+import { detect } from "./lib/detect";
 import {
-  loadFile, loadSample, type DocumentSource, type Scan,
+  loadFile, loadSample, type DocumentSource,
 } from "./lib/source";
 import { estimateSkew } from "./lib/imaging-core";
+import { applyTone } from "./lib/imaging-core";
 import { rotate, quarterTurns } from "./lib/transform";
-import { applyTone } from "./lib/tone";
 import {
-  cropCanvas, exportPdf, measure, plan, trimToMask,
-  type Fit, type Layout, type PresetName, type SheetName,
+  type Fit, type Layout, type OutputDpi, type PresetName, type SheetName,
 } from "./lib/sheet";
+import {
+  findObjectGroups, measuredObject, mergeObjects, refineObject,
+  type ObjectCandidate,
+} from "./lib/objects";
 import { downloadBytes } from "./lib/constants";
+import { turnBox, turnMask } from "./app-controls";
+import { createOutputController } from "./app-output";
+import { defaultBox, state as S, type PageState } from "./app-state";
+import { createScanView } from "./app-view";
 import Split from "split.js";
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
-const cv = $<HTMLCanvasElement>("canvas");
-const ctx = cv.getContext("2d")!;
 import type { Quality } from "./lib/constants";
 
 // Which size to run. Measured against a true 125 by 176 mm passport spread, tiny and base
@@ -29,36 +34,8 @@ import type { Quality } from "./lib/constants";
 let quality: Quality = "base-plus";
 let sam = new Sam(quality, "fp16");
 
-type MaskState = { mask: Float32Array; size: number; box: Box };
-type PageState = {
-  scan: Omit<Scan, "image">;
-  original: ImageData;
-  skew: number;
-  mask: MaskState | null;
-  box: Box;
-  note: string;
-};
-
-const defaultBox = (): Box => ({ x0: 0.05, y0: 0.05, x1: 0.95, y1: 0.95 });
-
-const S: {
-  source: DocumentSource | null;
-  page: number;
-  pages: Map<number, PageState>;
-  scan: Scan | null;                 // the working frame, straightened, untoned
-  toned: ImageData | null;           // the same frame with contrast applied, for output
-  original: ImageData | null;        // before straightening, so the slider can redo it
-  skew: number;
-  mask: MaskState | null;
-  box: Box;
-  drag: null | { kind: "move" | "handle"; i: number; ox: number; oy: number };
-} = {
-  source: null, page: 0, pages: new Map(),
-  scan: null, toned: null, original: null, skew: 0, mask: null,
-  box: defaultBox(), drag: null,
-};
-
 let currentFit: Fit = "true";
+const mergeSelection = new Set<number>();
 
 const layout = (): Layout => ({
   sheet: $<HTMLSelectElement>("sheet").value as SheetName,
@@ -66,7 +43,19 @@ const layout = (): Layout => ({
   fit: currentFit,
   preset: $<HTMLSelectElement>("preset").value as PresetName,
   marginMm: parseFloat($<HTMLInputElement>("margin").value) || 0,
-  trim: $<HTMLInputElement>("trim").checked ? S.mask : null,
+  outputDpi: ($<HTMLSelectElement>("resolution").value === "source"
+    ? "source" : Number($<HTMLSelectElement>("resolution").value)) as OutputDpi,
+});
+
+const output = createOutputController(
+  S,
+  layout,
+  () => S.objects.length === 0 && $<HTMLInputElement>("trim").checked ? S.mask : null,
+);
+const refreshOutput = () => output.refresh();
+const { draw } = createScanView(S, () => {
+  refreshOutput();
+  rememberPage();
 });
 
 /* -------------------------------------------------------------------- split */
@@ -125,6 +114,8 @@ function rememberPage() {
     mask: S.mask ? { ...S.mask, box: { ...S.mask.box } } : null,
     box: { ...S.box },
     note: $("note").textContent ?? "",
+    objects: S.objects,
+    selectedObjectId: S.selectedObjectId,
   });
 }
 
@@ -135,13 +126,18 @@ function showPage(state: PageState, index: number) {
   S.scan = { ...state.scan, image: rotate(state.original, state.skew) };
   S.mask = state.mask ? { ...state.mask, box: { ...state.mask.box } } : null;
   S.box = { ...state.box };
+  S.objects = state.objects;
+  S.selectedObjectId = state.selectedObjectId;
   S.drag = null;
+  mergeSelection.clear();
   S.toned = null;
   $<HTMLSelectElement>("pageSelect").value = String(index);
   $<HTMLInputElement>("skew").value = String(S.skew);
   $("skewOut").textContent = S.skew.toFixed(1);
   $("fileName").textContent = state.scan.name;
+  updateSourceResolutionLabel();
   $("note").textContent = state.note;
+  renderObjects();
   retone();
   showProgress(false);
   draw();
@@ -172,11 +168,16 @@ async function loadFreshPage(index: number) {
   S.scan = null;
   S.toned = null;
   S.mask = null;
+  S.objects = [];
+  S.selectedObjectId = null;
   S.box = defaultBox();
   S.drag = null;
+  mergeSelection.clear();
   $("fileName").textContent = scan.name;
+  updateSourceResolutionLabel(scan);
   $<HTMLSelectElement>("pageSelect").value = String(index);
   $("note").textContent = "";
+  renderObjects();
 
   // Straighten before anything else, the same order the Python build uses, so the crop box
   // and the measurement both refer to the upright frame.
@@ -259,90 +260,192 @@ async function runDetect() {
   rememberPage();
 }
 
-/* ------------------------------------------------------------------- canvas */
-const HANDLE = 9;
-
-function draw() {
+function renderObjects() {
+  const panel = $("objPanel");
+  const list = $("objList");
+  panel.hidden = S.objects.length === 0;
+  $<HTMLButtonElement>("findSeveral").textContent = S.objects.length
+    ? "Back to one item" : "Find several items";
+  $("objCount").textContent = S.objects.length ? `${S.objects.length} items` : "";
+  const merge = $<HTMLButtonElement>("mergeObjects");
+  merge.disabled = mergeSelection.size < 2;
+  merge.title = merge.disabled ? "tick two or more items first" : "combine the ticked items";
+  list.replaceChildren();
   if (!S.scan) return;
-  const img = S.scan.image;
-  const pane = cv.parentElement!;
-  const maxW = Math.max(120, pane.clientWidth - 24);
-  const maxH = Math.max(120, pane.clientHeight - 24);
-  const scale = Math.min(maxW / img.width, maxH / img.height, 1);
-  cv.width = Math.round(img.width * scale);
-  cv.height = Math.round(img.height * scale);
-
-  const src = new OffscreenCanvas(img.width, img.height);
-  src.getContext("2d")!.putImageData(img, 0, 0);
-  ctx.drawImage(src, 0, 0, cv.width, cv.height);
-
-  const r = boxPx();
-  ctx.save();
-  ctx.fillStyle = "rgba(10,12,16,.45)";
-  ctx.beginPath();
-  ctx.rect(0, 0, cv.width, cv.height);
-  ctx.rect(r.x, r.y, r.w, r.h);
-  ctx.fill("evenodd");
-  ctx.strokeStyle = "#2f6df6";
-  ctx.lineWidth = 2;
-  ctx.strokeRect(r.x + 1, r.y + 1, r.w - 2, r.h - 2);
-  ctx.fillStyle = "#2f6df6";
-  for (const [x, y] of corners()) ctx.fillRect(x - HANDLE / 2, y - HANDLE / 2, HANDLE, HANDLE);
-  ctx.restore();
+  S.objects.forEach((item, index) => {
+    const row = document.createElement("li");
+    row.className = `objRow${item.id === S.selectedObjectId ? " on" : ""}`;
+    const tick = document.createElement("input");
+    tick.type = "checkbox";
+    tick.checked = mergeSelection.has(item.id);
+    tick.title = `Select item ${index + 1} for merging`;
+    tick.addEventListener("click", event => {
+      event.stopPropagation();
+      if (tick.checked) mergeSelection.add(item.id);
+      else mergeSelection.delete(item.id);
+      renderObjects();
+    });
+    row.append(tick);
+    const measured = measuredObject(item, S.scan!.image, S.scan!.mmPerPx);
+    row.innerHTML = `<span class="objNum">${index + 1}</span>`
+      + `<span class="objSize">${measured ? `${measured[0]} by ${measured[1]} mm` : "scale unknown"}</span>`
+      + `<span class="objAngle">${item.angle.toFixed(1)}°</span>`;
+    row.prepend(tick);
+    row.addEventListener("click", () => {
+      S.selectedObjectId = item.id;
+      renderObjects();
+      draw();
+      refreshOutput();
+      rememberPage();
+    });
+    const choices = item.choices ?? [];
+    if (choices.length > 1) {
+      const select = document.createElement("select");
+      select.className = "objChoices";
+      select.title = "Overlapping boundaries proposed for this item";
+      choices.forEach((choice, choiceIndex) => {
+        const option = document.createElement("option");
+        option.value = String(choiceIndex);
+        const size = measuredObject(choice, S.scan!.image, S.scan!.mmPerPx);
+        option.textContent = `${choiceIndex + 1} of ${choices.length}: ${size
+          ? `${size[0]} by ${size[1]} mm` : "scale unknown"}`;
+        option.selected = choiceIndex === (item.choiceIndex ?? 0);
+        select.append(option);
+      });
+      select.addEventListener("click", event => event.stopPropagation());
+      select.addEventListener("change", async event => {
+        event.stopPropagation();
+        await chooseObjectCandidate(index, Number(select.value));
+      });
+      row.append(select);
+    }
+    if (item.mergedParts?.length) {
+      const undo = document.createElement("button");
+      undo.className = "objUndo";
+      undo.textContent = `Undo merge (${item.mergedParts.length})`;
+      undo.addEventListener("click", event => {
+        event.stopPropagation();
+        undoObjectMerge(index);
+      });
+      row.append(undo);
+    }
+    const remove = document.createElement("button");
+    remove.className = "objDel";
+    remove.type = "button";
+    remove.title = `Remove item ${index + 1}`;
+    remove.textContent = "×";
+    remove.addEventListener("click", event => {
+      event.stopPropagation();
+      S.objects = S.objects.filter(candidate => candidate.id !== item.id);
+      mergeSelection.delete(item.id);
+      if (S.selectedObjectId === item.id) S.selectedObjectId = S.objects[0]?.id ?? null;
+      renderObjects();
+      draw();
+      refreshOutput();
+      rememberPage();
+    });
+    row.append(remove);
+    list.append(row);
+  });
 }
 
-const boxPx = () => ({
-  x: S.box.x0 * cv.width, y: S.box.y0 * cv.height,
-  w: (S.box.x1 - S.box.x0) * cv.width, h: (S.box.y1 - S.box.y0) * cv.height,
-});
-function corners(): [number, number][] {
-  const r = boxPx();
-  return [[r.x, r.y], [r.x + r.w, r.y], [r.x, r.y + r.h], [r.x + r.w, r.y + r.h]];
-}
-function at(ev: PointerEvent) {
-  const b = cv.getBoundingClientRect();
-  const s = cv.width / b.width;
-  return { x: (ev.clientX - b.left) * s, y: (ev.clientY - b.top) * s };
-}
-
-cv.addEventListener("pointerdown", ev => {
-  const p = at(ev), cs = corners();
-  const hit = cs.findIndex(([x, y]) =>
-    Math.abs(x - p.x) < HANDLE * 1.6 && Math.abs(y - p.y) < HANDLE * 1.6);
-  const r = boxPx();
-  if (hit >= 0) S.drag = { kind: "handle", i: hit, ox: 0, oy: 0 };
-  else if (p.x > r.x && p.x < r.x + r.w && p.y > r.y && p.y < r.y + r.h)
-    S.drag = { kind: "move", i: -1, ox: p.x - r.x, oy: p.y - r.y };
-  else return;
-  cv.setPointerCapture(ev.pointerId);
-});
-cv.addEventListener("pointermove", ev => {
-  if (!S.drag) return;
-  const p = at(ev);
-  const nx = Math.min(Math.max(p.x / cv.width, 0), 1);
-  const ny = Math.min(Math.max(p.y / cv.height, 0), 1);
-  const b = S.box;
-  if (S.drag.kind === "move") {
-    const w = b.x1 - b.x0, h = b.y1 - b.y0;
-    const x0 = Math.min(Math.max((p.x - S.drag.ox) / cv.width, 0), 1 - w);
-    const y0 = Math.min(Math.max((p.y - S.drag.oy) / cv.height, 0), 1 - h);
-    S.box = { x0, y0, x1: x0 + w, y1: y0 + h };
-  } else {
-    if (S.drag.i === 0 || S.drag.i === 2) b.x0 = Math.min(nx, b.x1 - 0.02);
-    if (S.drag.i === 1 || S.drag.i === 3) b.x1 = Math.max(nx, b.x0 + 0.02);
-    if (S.drag.i === 0 || S.drag.i === 1) b.y0 = Math.min(ny, b.y1 - 0.02);
-    if (S.drag.i === 2 || S.drag.i === 3) b.y1 = Math.max(ny, b.y0 + 0.02);
-  }
-  draw();
-});
-for (const e of ["pointerup", "pointercancel"] as const) {
-  cv.addEventListener(e, () => { if (S.drag) { S.drag = null; refreshOutput(); } });
-}
-cv.addEventListener("dblclick", () => {
-  S.box = { x0: 0.02, y0: 0.02, x1: 0.98, y1: 0.98 };
+async function chooseObjectCandidate(objectIndex: number, choiceIndex: number) {
+  if (!S.scan) return;
+  const current = S.objects[objectIndex];
+  const choices = current?.choices;
+  const choice = choices?.[choiceIndex];
+  if (!current || !choices || !choice) return;
+  const refined = await refineObject(S.scan.image, choice);
+  const stable: ObjectCandidate = {
+    ...refined,
+    id: current.id,
+    choices,
+    choiceIndex,
+    alternatives: choices.filter((_, index) => index !== choiceIndex),
+  };
+  choices[choiceIndex] = {
+    ...refined, alternatives: [], choices: undefined, choiceIndex: undefined,
+  };
+  S.objects[objectIndex] = stable;
+  S.selectedObjectId = stable.id;
+  renderObjects();
   draw();
   refreshOutput();
-});
+  rememberPage();
+}
+
+async function mergeCheckedObjects() {
+  if (!S.scan || mergeSelection.size < 2) return;
+  const picked = S.objects.filter(item => mergeSelection.has(item.id));
+  if (picked.length < 2) return;
+  const firstIndex = Math.min(...picked.map(item => S.objects.indexOf(item)));
+  const merged = await mergeObjects(S.scan.image, picked);
+  S.objects = S.objects.filter(item => !mergeSelection.has(item.id));
+  S.objects.splice(firstIndex, 0, merged);
+  mergeSelection.clear();
+  S.selectedObjectId = merged.id;
+  renderObjects();
+  draw();
+  refreshOutput();
+  rememberPage();
+}
+
+function undoObjectMerge(index: number) {
+  const merged = S.objects[index];
+  if (!merged?.mergedParts?.length) return;
+  const parts = merged.mergedParts;
+  S.objects.splice(index, 1, ...parts);
+  mergeSelection.clear();
+  S.selectedObjectId = parts[0]?.id ?? null;
+  renderObjects();
+  draw();
+  refreshOutput();
+  rememberPage();
+}
+
+async function toggleSeveralItems() {
+  if (!S.scan) return;
+  if (S.objects.length) {
+    S.objects = [];
+    mergeSelection.clear();
+    S.selectedObjectId = null;
+    renderObjects();
+    draw();
+    refreshOutput();
+    rememberPage();
+    return;
+  }
+  showProgress(true, "Finding every item");
+  try {
+    const groups = await findObjectGroups(sam, S.scan.image, progress => {
+      $<HTMLElement>("fill").style.width = `${Math.round(progress.fraction * 100)}%`;
+      $("progressNote").textContent = progress.status;
+    });
+    S.objects = groups.map(group => group[0]!).filter(Boolean);
+    mergeSelection.clear();
+    S.selectedObjectId = S.objects[0]?.id ?? null;
+    $("note").textContent = S.objects.length
+      ? `Found ${S.objects.length} item${S.objects.length === 1 ? "" : "s"}; each keeps its own angle.`
+      : "No separate document-shaped items were found. The single-item crop is unchanged.";
+    renderObjects();
+    draw();
+    refreshOutput();
+    rememberPage();
+  } catch (error) {
+    $("note").textContent = `Could not find several items. ${(error as Error).message}`;
+  } finally {
+    showProgress(false);
+  }
+}
+
+function updateSourceResolutionLabel(scan = S.scan) {
+  const option = $<HTMLSelectElement>("resolution")
+    .querySelector<HTMLOptionElement>('option[value="source"]');
+  if (!option) return;
+  option.textContent = scan?.mmPerPx
+    ? `Match source pixels (${Math.round(scan.dpi)} dpi)`
+    : "Match source pixels";
+}
 
 /**
  * Contrast is applied to the whole straightened frame, not to the crop, so the percentiles
@@ -356,48 +459,6 @@ function retone() {
   S.toned = (clip > 0 || stretch) ? applyTone(S.scan.image, clip, stretch) : null;
 }
 
-const outputImage = () => S.toned ?? S.scan!.image;
-
-/* ------------------------------------------------------------------- output */
-let outTimer: number | undefined;
-function refreshOutput() {
-  clearTimeout(outTimer);
-  outTimer = window.setTimeout(async () => {
-    if (!S.scan) return;
-    const L = layout();
-    const p = plan(S.scan, S.box, L);
-    const m = measure(S.scan.image, S.box, S.scan.mmPerPx);
-
-    $("factScan").textContent = m ? `${m[0]} by ${m[1]} mm` : "scale unknown";
-    $("factOut").textContent = `${p.contentMm[0]} by ${p.contentMm[1]} mm`;
-    $("factSheet").textContent = p.sheetMm ? `${p.sheetMm[0]} by ${p.sheetMm[1]} mm` : "no sheet";
-    $("scaleNote").textContent = `${p.note}. ${S.scan.origin}.`;
-    $("sheetChip").textContent = p.sheetMm
-      ? `${p.contentMm[0]} by ${p.contentMm[1]} mm on ${p.sheetMm[0]} by ${p.sheetMm[1]}`
-      : `${p.contentMm[0]} by ${p.contentMm[1]} mm`;
-
-    // Compose the sheet the same way the export does, so the preview cannot drift from it.
-    let crop = cropCanvas(outputImage(), S.box);
-    if (L.trim) crop = trimToMask(crop, S.box, L.trim.mask, L.trim.size, L.trim.box);
-    const dpi = 110;
-    const sheetMm = p.sheetMm
-      ?? [p.contentMm[0] + 2 * L.marginMm, p.contentMm[1] + 2 * L.marginMm];
-    const sw = Math.round((sheetMm[0] / 25.4) * dpi);
-    const sh = Math.round((sheetMm[1] / 25.4) * dpi);
-    const sheet = new OffscreenCanvas(sw, sh);
-    const sc = sheet.getContext("2d")!;
-    sc.fillStyle = "#fff";
-    sc.fillRect(0, 0, sw, sh);
-    const cw = Math.round((p.contentMm[0] / 25.4) * dpi);
-    const ch = Math.round((p.contentMm[1] / 25.4) * dpi);
-    sc.drawImage(crop, (sw - cw) / 2, (sh - ch) / 2, cw, ch);
-    const blob = await sheet.convertToBlob({ type: "image/jpeg", quality: 0.85 });
-    const img = $<HTMLImageElement>("sheetImg");
-    const old = img.src;
-    img.src = URL.createObjectURL(blob);
-    if (old.startsWith("blob:")) URL.revokeObjectURL(old);
-  }, 120);
-}
 
 /* ------------------------------------------------------------------ controls */
 for (const id of ["file", "file2"]) {
@@ -432,30 +493,15 @@ $("startOver").addEventListener("click", () => location.reload());
  * quarter turn is exact: the crop box, the mask and the tilt all rotate with the frame, so
  * they are transformed rather than rediscovered, and the turn is instant.
  */
-function turnBox(b: Box, k: number): Box {
-  if (k === 1) return { x0: 1 - b.y1, y0: b.x0, x1: 1 - b.y0, y1: b.x1 };   // clockwise
-  if (k === 2) return { x0: 1 - b.x1, y0: 1 - b.y1, x1: 1 - b.x0, y1: 1 - b.y0 };
-  if (k === 3) return { x0: b.y0, y0: 1 - b.x1, x1: b.y1, y1: 1 - b.x0 };
-  return b;
-}
-
-function turnMask(mask: Float32Array, size: number, k: number): Float32Array {
-  if (k === 0) return mask;
-  const out = new Float32Array(size * size);
-  for (let y = 0; y < size; y++) {
-    for (let x = 0; x < size; x++) {
-      const v = mask[y * size + x] ?? -1;
-      const nx = k === 1 ? size - 1 - y : k === 2 ? size - 1 - x : y;
-      const ny = k === 1 ? x : k === 2 ? size - 1 - y : size - 1 - x;
-      out[ny * size + nx] = v;
-    }
-  }
-  return out;
-}
-
 function turn(quarters: number) {
   if (!S.scan || !S.original) return;
   const k = ((quarters % 4) + 4) % 4;
+  if (S.objects.length) {
+    S.objects = [];
+    mergeSelection.clear();
+    S.selectedObjectId = null;
+    renderObjects();
+  }
   S.original = quarterTurns(S.original, k);
   // The tilt relative to the axes is unchanged by a quarter turn, so it carries over as is.
   S.scan = { ...S.scan, image: rotate(S.original, S.skew) };
@@ -478,6 +524,10 @@ $("rot180").addEventListener("click", () => turn(2));
 $("model").addEventListener("change", async e => {
   quality = (e.target as HTMLSelectElement).value as Quality;
   sam = new Sam(quality, "fp16");          // a session is tied to its weights
+  S.objects = [];
+  mergeSelection.clear();
+  S.selectedObjectId = null;
+  renderObjects();
   await reportModelState();
   if (S.scan) await runDetect();
 });
@@ -493,6 +543,10 @@ $("skew").addEventListener("input", e => {
     if (!S.scan || !S.original) return;
     S.scan = { ...S.scan, image: rotate(S.original, S.skew) };
     S.mask = null;
+    S.objects = [];
+    mergeSelection.clear();
+    S.selectedObjectId = null;
+    renderObjects();
     retone();
     $("note").textContent = "Straightened by hand. Detect again to refit the box.";
     draw();
@@ -512,6 +566,8 @@ for (const id of ["clahe", "stretch"]) {
 }
 $("sample").addEventListener("click", () => open(loadSample));
 $("redetect").addEventListener("click", runDetect);
+$("findSeveral").addEventListener("click", toggleSeveralItems);
+$("mergeObjects").addEventListener("click", mergeCheckedObjects);
 
 const drop = $("drop");
 for (const e of ["dragenter", "dragover"] as const) {
@@ -534,7 +590,7 @@ document.querySelectorAll<HTMLButtonElement>(".segBtn").forEach(btn =>
     $("preset").hidden = currentFit !== "preset";
     refreshOutput();
   }));
-for (const id of ["sheet", "margin", "landscape", "preset"]) {
+for (const id of ["sheet", "margin", "landscape", "preset", "resolution"]) {
   $(id).addEventListener("change", refreshOutput);
 }
 
@@ -542,9 +598,9 @@ $("download").addEventListener("click", async () => {
   if (!S.scan) return;
   const btn = $<HTMLButtonElement>("download");
   btn.disabled = true;
-  btn.textContent = "Writing the PDF";
+  btn.textContent = S.objects.length > 1 ? `Writing ${S.objects.length} pages` : "Writing the PDF";
   try {
-    const blob = await exportPdf({ ...S.scan, image: outputImage() }, S.box, layout());
+    const blob = await output.download();
     const a = document.createElement("a");
     a.href = URL.createObjectURL(blob);
     a.download = "cropsize.pdf";

@@ -15,6 +15,8 @@ export interface Embeddings {
   height: number;
 }
 
+export interface DecodedMask { mask: Float32Array; size: number; score: number }
+
 async function session(
   quality: Quality, precision: Precision,
   which: "vision_encoder" | "prompt_encoder_mask_decoder",
@@ -133,7 +135,16 @@ export class Sam {
   async decode(
     emb: Embeddings,
     opts: { box?: [number, number, number, number]; points?: [number, number, 0 | 1][] },
-  ): Promise<{ mask: Float32Array; size: number; score: number }> {
+  ): Promise<DecodedMask> {
+    const candidates = await this.decodeAll(emb, opts);
+    return candidates.reduce((best, candidate) => candidate.score > best.score ? candidate : best);
+  }
+
+  /** Return every mask proposal for a prompt; objects mode filters and groups them later. */
+  async decodeAll(
+    emb: Embeddings,
+    opts: { box?: [number, number, number, number]; points?: [number, number, 0 | 1][] },
+  ): Promise<DecodedMask[]> {
     if (!this.decoder) throw new Error("call ready() first");
     const sx = SAM.inputSize / emb.width;
     const sy = SAM.inputSize / emb.height;
@@ -157,14 +168,10 @@ export class Sam {
     const scores = out.iou_scores.data as Float32Array;
     const masks = out.pred_masks.data as Float32Array;
     const size = SAM.maskSize;
-    let best = 0;
-    for (let i = 1; i < scores.length; i++) {
-      if ((scores[i] ?? -Infinity) > (scores[best] ?? -Infinity)) best = i;
-    }
-    return {
-      mask: masks.slice(best * size * size, (best + 1) * size * size),
+    return Array.from(scores, (score, index) => ({
+      mask: masks.slice(index * size * size, (index + 1) * size * size),
       size,
-      score: scores[best] ?? 0,
-    };
+      score,
+    }));
   }
 }

@@ -114,4 +114,3 @@ export const SAM = {
 } as const;
 
 /** Measured with onnxruntime 1.28 on CPU, tiny/fp32: encoder 0.74 s, decoder 36 ms. */
-export const EXPECTED_MS = { encoderCpu: 740, decoderCpu: 36 } as const;

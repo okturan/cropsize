@@ -31,9 +31,13 @@ export default defineConfig({
     browser: {
       enabled: true,
       headless: true,
-      provider: playwright({ launchOptions: { channel: "chrome" } }),
+      provider: playwright({
+        launchOptions: { channel: "chrome" },
+        persistentContext: true,
+      }),
       instances: [{ browser: "chromium" }],
       screenshotFailures: false,
     },
+    fileParallelism: false,
   },
 });

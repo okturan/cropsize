@@ -1,77 +1,79 @@
-# Browser build: current state
+# Browser build
 
 The public product is the static app at [cropsize.pages.dev](https://cropsize.pages.dev).
-PDF parsing, image processing, segmentation and PDF writing happen in the tab. A scan is not
+PDF parsing, image processing, segmentation and PDF writing happen in the tab. Scans are not
 sent to an application server.
 
-This file records what the browser build does now. The implementation plan for closing the
-remaining gaps lives in `openspec/changes/browser-core-and-parity/`.
+## Production baseline
 
-## Production facts
+Measured in Chrome on 2026-07-31 with cached model files and cold sessions:
 
-Measured on 2026-07-31 in Chrome:
-
-| Fact | Current result |
+| Fact | Result |
 | --- | --- |
-| Cross-origin isolation | On. `crossOriginIsolated === true`; `SharedArrayBuffer` is available. |
-| ONNX Runtime threads | `ort.env.wasm.numThreads` is unset before the first WASM session. ONNX Runtime Web 1.27 then selected 4 threads on a host reporting 10 logical cores. |
-| Default model | SAM 2.1 base-plus, fp16, about 163 MB. Tiny fp16, about 78 MB, is optional. |
-| Sample skew | -2.4 degrees. |
-| Sample size | 104.9 by 147.9 mm against a true 105 by 148 mm. |
-| Browser baseline | Base-plus encoder 16.255 s; decoder passes 52.7 ms and 46.9 ms; 35.105 s from opening the sample to seeing the crop. Model files were cached and sessions were cold. |
-| Peak sampled JavaScript heap | 250.6 MiB during that run. |
+| Cross-origin isolation | On; `SharedArrayBuffer` is available. |
+| ONNX Runtime threads | Four WASM threads on a host with ten logical cores. |
+| Default model | SAM 2.1 base-plus fp16, about 163 MB. |
+| Optional model | SAM 2.1 tiny fp16, about 78 MB. |
+| Base-plus encoder | 16.255 seconds on the public sample. |
+| Open to crop | 35.105 seconds on the public sample. |
+| Decoder passes | 52.7 ms and 46.9 ms. |
+| Peak sampled JavaScript heap | 250.6 MiB. |
 
-The old 0.74 s and 1.9 s encoder figures came from native CPU runs. They are useful model
-comparisons, but they are not browser performance figures. The production browser is already
-isolated and ORT is already multithreaded, so the current 16.255 s encoder result is not a
-missing-header or one-thread problem.
+The browser is already isolated and multithreaded. The encoder time is real model inference,
+not a missing-header problem. The Rust core below is a correctness and parity investment; it
+does not fix that latency.
 
 ## What ships
 
-- PDF and raster input. PDF page geometry supplies the physical scale; raster files are
-  reported as scale unknown.
-- Multi-page PDF navigation. The selected page is rendered at 300 dpi, and every visited
-  page keeps its own crop, quarter-turn rotation, skew and mask.
-- Automatic skew measurement, single-document segmentation, edge snapping and a draggable
-  crop rectangle.
-- Optional corner trimming, contrast and white-point controls.
-- Real-size, known-size and fill-sheet layout on A3, A4, A5, Letter, Legal or no sheet.
-- A preview composed by the same path used for PDF export.
-- Local model caching and a choice between base-plus and tiny.
-
-## What does not ship yet
-
-- Several-items mode, per-item rotation, candidate cycling or merge.
-- Zoom and pan.
-- Output-resolution control.
-- Browser fixture tests. The TypeScript imaging maths is still a hand port with no Vitest
-  coverage.
+- PDF and raster input. PDF page geometry supplies physical scale; raster files are reported
+  as scale unknown.
+- Multi-page navigation with separate crop, rotation, skew and object state on every visited
+  page.
+- Single-document detection with a draggable normalized crop and optional corner trimming.
+- Several-items detection from one model encode. Every item carries its own fitted angle and
+  exports as its own PDF page.
+- Measured overlapping candidates, selection between them, merging selected items and undo.
+- Fit zoom, up to four-times zoom, modifier-wheel zoom and drag-to-pan mode.
+- Real-size, known-size and fill-sheet output on A3, A4, A5, Letter, Legal or no sheet.
+- Source-pixel export by default, plus explicit 150, 300 and 600 dpi output.
+- Optional CLAHE and white-point controls.
+- Base-plus and tiny model choices with verified local caching.
 
 ## Implementation map
 
-| Area | Browser implementation | Current limitation |
-| --- | --- | --- |
-| Source | `pdfjs-dist` and canvas | Pages are rendered on demand; visited pages keep one original frame each. |
-| Segmentation | SAM 2.1 through `onnxruntime-web` | One box/point result, not an object set. |
-| Geometry | Hand-written TypeScript in `deskew.ts`, `detect.ts` and `sheet.ts` | No shared core and no fixture suite. |
-| Computer vision primitives | None | `opencv-js` was removed during the public-release cleanup. |
-| Output | `pdf-lib` | Fixed internal export resolution. |
-| UI | One `main.ts` file plus canvas | No object list, zoom or pan. |
+| Area | Browser implementation |
+| --- | --- |
+| Source | `pdfjs-dist`, rendered page by page with PDF geometry preserved. |
+| Segmentation | SAM 2.1 through `onnxruntime-web`; one encode, then box, point or grid prompts. |
+| Imaging maths | `core/crates/imaging-core`, compiled with `wasm-pack`. |
+| Browser orchestration | TypeScript modules for state, view, controls, model work and output. |
+| PDF output | `pdf-lib`; source pixels by default, optional explicit resampling. |
+| Tests | Native Rust tests plus Vitest Browser Mode in headless Chrome. |
 
-Two constraints still shape the build:
+The core owns skew, edge snapping, mask cleanup, convex hulls, trimming, rotated extraction,
+page layout arithmetic, tone work and the computer-vision primitives used by objects mode.
+TypeScript owns the DOM, canvas interaction, ONNX orchestration, PDF parsing and PDF writing.
+There is no TypeScript copy of the core maths.
 
-1. ONNX Runtime is loaded from jsDelivr with Subresource Integrity, keeping its runtime
-   binaries outside the application bundle. The largest WASM variant in 1.27.0 is
-   26,827,543 bytes.
-2. The model weights use `.onnx_data` sidecars. They must be passed through ORT's
-   `externalData` option and are verified against the pinned byte manifest before caching.
+The final optimized core measures 96,929 bytes raw, 40,879 bytes with gzip and 34,180 bytes
+with Brotli. The removed `@techstark/opencv-js@5.0.0-release.1` package is 4,031,133
+bytes as an npm tarball and 14,731,296 bytes unpacked.
 
-## Tests and next work
+## Fixtures and tests
 
-The Python suite has 16 tests for physical scale, crop geometry, page layout, rotation,
-deskew, trimming and PDF export. The browser does not yet assert those fixtures. The
-`browser-core-and-parity` OpenSpec change adds a shared corpus, a browser suite and a measured
-Rust/WASM spike before committing to the rest of the computer-vision layer.
+`fixtures/corpus.json` is the shared contract. The public synthetic scan is checked in. The
+two passport PDFs remain outside Git; ignored links under `fixtures/private/` point to the
+original local files, and the manifest pins their hashes and expected measurements.
+
+```bash
+cd web
+npm test
+CROPSIZE_RUN_BROWSER_MODEL_FIXTURES=1 npm test
+```
+
+The ordinary suite builds the WASM core and runs module tests in Chrome. The opt-in suite
+loads the real base-plus model and checks the public flatbed plus any private fixtures present
+on the machine.
 
 ## Run and deploy
 
