@@ -43,6 +43,8 @@ jobs:
           node-version: "22"
           cache: npm
           cache-dependency-path: web/package-lock.json
+      - run: cargo install wasm-pack --locked
       - run: npm ci
+      - run: npm run build:core
       - run: npm run typecheck
       - run: npm run build
