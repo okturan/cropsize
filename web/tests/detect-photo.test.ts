@@ -19,8 +19,8 @@ ortModule.env.wasm.numThreads = 4;
 const sam = new Sam("base-plus", "fp16");
 
 const photos = [
-  { file: "private/okan-id-front.png", box: [0.168, 0.336, 0.875, 0.672] },
-  { file: "private/okan-id-back.png", box: [0.105, 0.313, 0.895, 0.688] },
+  { file: "private/okan-id-front.jpg", box: [0.168, 0.336, 0.875, 0.672] },
+  { file: "private/okan-id-back.jpg", box: [0.105, 0.313, 0.895, 0.688] },
 ];
 
 for (const photo of photos) {

@@ -11,17 +11,19 @@ deployment. Their canonical files stay wherever their owner keeps them. On this 
 ignored local paths are symlinks:
 
 ```text
-fixtures/private/ilkyaz.pdf -> /Users/okan/Documents/ilkyaz pspt.pdf
-fixtures/private/irene.pdf  -> /Users/okan/Documents/irene pspt.pdf
+fixtures/private/ilkyaz.pdf -> <iCloud>/LongTermStorage/People/İlkyaz/Documents/IDs-and-Passports/İlkyaz-Pasaport-COL-<redacted>-issued2021-expires2031-scan.pdf
+fixtures/private/irene.pdf  -> <iCloud>/LongTermStorage/People/Irene/Documents/IDs-and-Passports/Irene-Pasaport-COL-<redacted>-issued2021-expires2031-scan.pdf
 ```
+
+where `<iCloud>` is `~/Library/Mobile Documents/com~apple~CloudDocs`.
 
 Two further ignored links hold phone photos of an ID card lying on a plain surface, front
 and back. They are not in the manifest; `web/tests/detect-photo.test.ts` uses them to make
 sure the card is found rather than the surface, and passes trivially where they are absent:
 
 ```text
-fixtures/private/okan-id-front.png -> /Users/okan/Downloads/IMG_4498.png
-fixtures/private/okan-id-back.png  -> /Users/okan/Downloads/IMG_4499.png
+fixtures/private/okan-id-front.jpg -> <iCloud>/LongTermStorage/People/Okan/Documents/IDs-and-Passports/Okan-TCKimlik-<redacted>-valid2026-2036-photo-front.jpg
+fixtures/private/okan-id-back.jpg  -> <iCloud>/LongTermStorage/People/Okan/Documents/IDs-and-Passports/Okan-TCKimlik-<redacted>-valid2026-2036-photo-back.jpg
 ```
 
 If a link's target moves, the private rows skip silently; check with `ls -L`.
@@ -38,6 +40,12 @@ $env:CROPSIZE_RUN_MODEL_FIXTURES = 1; .\.venv\Scripts\pytest tests\test_corpus.p
 ```
 
 Model-backed rows are opt-in so the ordinary suite still needs no model weights.
+
+The trim expectation was recorded from the Python build, which trims to the outline of a
+full-resolution mask. The browser trims to the convex hull of the model's 256 pixel mask,
+drawn as a polygon with a soft edge, so on the sleeve scans it clears up to 0.4% fewer
+pixels than Python does. The private rows carry a 0.004 tolerance for that; the public sample
+agrees within 0.003.
 
 Rust does not parse PDFs in its test build. Materialise deterministic grayscale PNGs for
 that suite after installing the private links:

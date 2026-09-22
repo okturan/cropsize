@@ -346,6 +346,51 @@ fn mask_value(mask: &[f32], size: usize, x: isize, y: isize) -> f64 {
     f64::from(mask[y * size + x])
 }
 
+/// Where a scanline at `y` enters and leaves a convex polygon, or None when it misses.
+fn polygon_span(polygon: &[Point], y: f64) -> Option<(f64, f64)> {
+    let mut low = f64::INFINITY;
+    let mut high = f64::NEG_INFINITY;
+    for i in 0..polygon.len() {
+        let a = polygon[i];
+        let b = polygon[(i + 1) % polygon.len()];
+        if (a.y <= y && b.y > y) || (b.y <= y && a.y > y) {
+            let t = (y - a.y) / (b.y - a.y);
+            let x = a.x + t * (b.x - a.x);
+            low = low.min(x);
+            high = high.max(x);
+        } else if a.y == y {
+            low = low.min(a.x);
+            high = high.max(a.x);
+        }
+    }
+    (low <= high).then_some((low, high))
+}
+
+fn segment_distance(a: Point, b: Point, x: f64, y: f64) -> f64 {
+    let dx = b.x - a.x;
+    let dy = b.y - a.y;
+    let length_squared = dx * dx + dy * dy;
+    let t = if length_squared > 0.0 {
+        (((x - a.x) * dx + (y - a.y) * dy) / length_squared).clamp(0.0, 1.0)
+    } else {
+        0.0
+    };
+    let px = a.x + t * dx;
+    let py = a.y + t * dy;
+    ((x - px) * (x - px) + (y - py) * (y - py)).sqrt()
+}
+
+fn polygon_distance(polygon: &[Point], x: f64, y: f64) -> f64 {
+    (0..polygon.len())
+        .map(|i| segment_distance(polygon[i], polygon[(i + 1) % polygon.len()], x, y))
+        .fold(f64::INFINITY, f64::min)
+}
+
+/// Half-width of the soft edge, in mask pixels; the edge itself sits half a pixel outside
+/// the outermost mask pixel centres, where the bilinear zero crossing used to be.
+const TRIM_EDGE_OFFSET: f64 = 0.5;
+const TRIM_EDGE_RAMP: f64 = 0.35;
+
 fn trim_mask_rgba(
     rgba: &mut [u8],
     width: usize,
@@ -361,14 +406,23 @@ fn trim_mask_rgba(
     let mut hull_y0 = size;
     let mut hull_x1 = None;
     let mut hull_y1 = None;
+    let mut extremes = Vec::new();
     for y in 0..size {
+        let mut first = None;
+        let mut last = None;
         for x in 0..size {
             if mask[y * size + x] > 0.0 {
                 hull_x0 = hull_x0.min(x);
                 hull_y0 = hull_y0.min(y);
                 hull_x1 = Some(hull_x1.map_or(x, |value: usize| value.max(x)));
                 hull_y1 = Some(hull_y1.map_or(y, |value: usize| value.max(y)));
+                first.get_or_insert(x);
+                last = Some(x);
             }
+        }
+        if let (Some(first), Some(last)) = (first, last) {
+            extremes.push(Point { x: first as f64, y: y as f64 });
+            extremes.push(Point { x: last as f64, y: y as f64 });
         }
     }
     let (Some(hull_x1), Some(hull_y1)) = (hull_x1, hull_y1) else {
@@ -381,6 +435,28 @@ fn trim_mask_rgba(
         .zip(mask_box)
         .all(|(a, b)| (*a - b).abs() < 1e-9);
 
+    // The mask is a quarter the resolution of a scan or less, so its rows upsample to
+    // stair steps eight or ten pixels tall. The outline is drawn as the convex polygon
+    // through the mask's edge pixels instead, at full resolution with a soft edge. A
+    // mask that is not one convex blob keeps the plain bilinear sampling.
+    let polygon = convex_hull(extremes);
+    let polygon = (polygon.len() >= 3).then_some(polygon);
+    // Pixels whose 5 by 5 neighbourhood holds nothing are beyond the soft edge for sure.
+    let mut near = vec![false; size * size];
+    if polygon.is_some() {
+        for y in 0..size {
+            for x in 0..size {
+                if mask[y * size + x] > 0.0 {
+                    for ny in y.saturating_sub(2)..(y + 3).min(size) {
+                        for nx in x.saturating_sub(2)..(x + 3).min(size) {
+                            near[ny * size + nx] = true;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     let mut candidates = Vec::new();
     for y in 0..height {
         let normal_y = (y as f64 + 0.5) / height as f64;
@@ -391,6 +467,7 @@ fn trim_mask_rgba(
         };
         let floor_y = mask_y.floor() as isize;
         let weight_y = mask_y - floor_y as f64;
+        let span = polygon.as_deref().map(|p| polygon_span(p, mask_y));
         for x in 0..width {
             let normal_x = (x as f64 + 0.5) / width as f64;
             let mask_x = if automatic {
@@ -398,15 +475,35 @@ fn trim_mask_rgba(
             } else {
                 (crop[0] + normal_x * (crop[2] - crop[0])) * size as f64 - 0.5
             };
-            let floor_x = mask_x.floor() as isize;
-            let weight_x = mask_x - floor_x as f64;
-            let top = mask_value(mask, size, floor_x, floor_y) * (1.0 - weight_x)
-                + mask_value(mask, size, floor_x + 1, floor_y) * weight_x;
-            let bottom = mask_value(mask, size, floor_x, floor_y + 1) * (1.0 - weight_x)
-                + mask_value(mask, size, floor_x + 1, floor_y + 1) * weight_x;
-            let value = top * (1.0 - weight_y) + bottom * weight_y;
-            if value < 0.35 {
-                candidates.push((value, (y * width + x) * 4));
+            let alpha = match (&polygon, span) {
+                (Some(polygon), Some(span)) => {
+                    if let Some((low, high)) = span {
+                        if mask_x >= low && mask_x <= high {
+                            continue;
+                        }
+                    }
+                    let nx = (mask_x.round() as isize).clamp(0, size as isize - 1) as usize;
+                    let ny = (mask_y.round() as isize).clamp(0, size as isize - 1) as usize;
+                    if !near[ny * size + nx] {
+                        0.0
+                    } else {
+                        let outside = polygon_distance(polygon, mask_x, mask_y);
+                        ((TRIM_EDGE_OFFSET - outside) / TRIM_EDGE_RAMP + 0.5).clamp(0.0, 1.0)
+                    }
+                }
+                _ => {
+                    let floor_x = mask_x.floor() as isize;
+                    let weight_x = mask_x - floor_x as f64;
+                    let top = mask_value(mask, size, floor_x, floor_y) * (1.0 - weight_x)
+                        + mask_value(mask, size, floor_x + 1, floor_y) * weight_x;
+                    let bottom = mask_value(mask, size, floor_x, floor_y + 1) * (1.0 - weight_x)
+                        + mask_value(mask, size, floor_x + 1, floor_y + 1) * weight_x;
+                    let value = top * (1.0 - weight_y) + bottom * weight_y;
+                    ((value + TRIM_EDGE_RAMP) / (2.0 * TRIM_EDGE_RAMP)).clamp(0.0, 1.0)
+                }
+            };
+            if alpha < 1.0 {
+                candidates.push((alpha, (y * width + x) * 4));
             }
         }
     }
@@ -420,11 +517,10 @@ fn trim_mask_rgba(
             candidates.truncate(maximum);
         }
     }
-    for (value, offset) in candidates {
-        if value <= -0.35 {
+    for (alpha, offset) in candidates {
+        if alpha <= 0.0 {
             rgba[offset..offset + 3].fill(255);
         } else {
-            let alpha = (value + 0.35) / 0.7;
             for channel in &mut rgba[offset..offset + 3] {
                 *channel = (f64::from(*channel) * alpha + 255.0 * (1.0 - alpha)).round() as u8;
             }
@@ -1421,6 +1517,49 @@ mod tests {
         assert!(cleaned[8 * size + 3] > 0.0);
         assert!(cleaned[8 * size + 12] > 0.0);
         assert!(cleaned[8 * size + 8] > 0.0, "the gutter must be bridged");
+    }
+
+    #[test]
+    fn trim_draws_the_outline_as_a_smooth_polygon_rather_than_mask_rows() {
+        // A diamond in a 16 by 16 mask, upsampled 25 times: the old row-by-row sampling
+        // produced 25 pixel stair steps along its slanted sides.
+        let size = 16;
+        let mut mask = vec![-1.0_f32; size * size];
+        for y in 0..size {
+            for x in 0..size {
+                if (x as i32 - 8).abs() + (y as i32 - 8).abs() <= 5 {
+                    mask[y * size + x] = 1.0;
+                }
+            }
+        }
+        let (width, height) = (400, 400);
+        let mut rgba = vec![0_u8; width * height * 4];
+        for alpha in rgba.iter_mut().skip(3).step_by(4) {
+            *alpha = 255;
+        }
+        trim_mask_rgba(
+            &mut rgba,
+            width,
+            height,
+            &mask,
+            size,
+            [0.0, 0.0, 1.0, 1.0],
+            [0.5, 0.5, 0.5, 0.5],
+        );
+        // Along the upper-left side, the first surviving (dark) pixel of each row should
+        // move by a steady one pixel per row, never by a whole mask cell at once.
+        let first_dark = |y: usize| (0..width).find(|&x| rgba[(y * width + x) * 4] < 128);
+        let mut previous = first_dark(120).unwrap();
+        for y in 121..190 {
+            let current = first_dark(y).unwrap();
+            assert!(
+                previous >= current && previous - current <= 2,
+                "row {y}: edge jumped from {previous} to {current}"
+            );
+            previous = current;
+        }
+        // and the edge is soft: some pixels are neither kept nor cleared
+        assert!(rgba.iter().step_by(4).any(|&value| value > 20 && value < 235));
     }
 
     #[test]

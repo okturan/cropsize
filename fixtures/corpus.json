@@ -45,7 +45,7 @@
         "skew_degrees": 0.3,
         "box_mm": 3.0,
         "measured_mm": 3.0,
-        "trim_changed_fraction": 0.003
+        "trim_changed_fraction": 0.004
       },
       "limits": { "trim_changed_fraction": 0.01 }
     },
@@ -68,7 +68,7 @@
         "skew_degrees": 0.3,
         "box_mm": 3.0,
         "measured_mm": 3.0,
-        "trim_changed_fraction": 0.003
+        "trim_changed_fraction": 0.004
       },
       "limits": { "trim_changed_fraction": 0.01 }
     }
