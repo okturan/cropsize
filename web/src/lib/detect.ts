@@ -144,8 +144,20 @@ export async function detect(
   }
   if (!shape) throw new Error("nothing found in this scan");
 
+  // The mask is only precise to one of its own pixels, and it stops at the printed area
+  // when a card's pale rim reads as background, so it sits a little inside the physical
+  // edge. Half a mask pixel of bleed keeps the rim and the rounded corners; the edge snap
+  // still pulls the box onto a real edge where there is one.
+  const bleed = 0.5 / result.size;
+  const bled: Box = {
+    x0: Math.max(0, shape.box.x0 - bleed),
+    y0: Math.max(0, shape.box.y0 - bleed),
+    x1: Math.min(1, shape.box.x1 + bleed),
+    y1: Math.min(1, shape.box.y1 + bleed),
+  };
+
   return {
-    box: await snapEdges(img, shape.box),
+    box: await snapEdges(img, bled),
     score: result.score,
     note: `${how}, score ${result.score.toFixed(3)}`,
     mask: await cleanMask(result.mask, result.size),
