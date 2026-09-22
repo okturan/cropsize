@@ -5,7 +5,14 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>cropsize, crop a scan and print it at its real size</title>
 <link rel="stylesheet" href="/src/style.css">
+<!-- Warm the connections the page needs: the runtime from the CDN, the weights from
+     Hugging Face. Saves two DNS+TLS round trips off the first model download. -->
+<link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
+<link rel="preconnect" href="https://huggingface.co" crossorigin>
+<!-- defer keeps the runtime off the critical path: first paint no longer waits on a
+     2 MB script. Deferred scripts still execute before the module below runs. -->
 <script
+  defer
   src="https://cdn.jsdelivr.net/npm/onnxruntime-web@1.27.0/dist/ort.min.js"
   integrity="sha384-uEaiZh7//Wy463wyKt2IRGCp/U7xzZL3k9Qd5Nm760KK9EkwN2nPN2DSEELB6WgC"
   crossorigin="anonymous"
@@ -77,6 +84,13 @@
     <span class="muted small">Each item keeps its own angle. Select one to preview it; the PDF includes all listed items.</span>
     <ul id="objList" class="objList"></ul>
     <button id="mergeObjects" disabled title="tick two or more items first">Merge selected</button>
+  </div>
+
+  <div id="trayPanel" class="objPanel" hidden>
+    <strong id="trayCount"></strong>
+    <span class="muted small">Pinned crops print together on one sheet. Open the other side, crop it, and it joins them; pin it too if you want to add a third.</span>
+    <ul id="trayList" class="objList"></ul>
+    <button id="clearTray" title="take everything off the sheet">Clear the sheet</button>
   </div>
 
   <div class="split" id="split">
@@ -152,7 +166,10 @@
       <span><span class="rk">sheet</span><span id="factSheet" class="rv">, </span></span>
     </div>
 
-    <button id="download" class="primary">Download the PDF</button>
+    <div class="setGroup sheetActions">
+      <button id="addToSheet" title="pin this crop on the sheet, then open the other side and crop that too">Add to sheet</button>
+      <button id="download" class="primary">Download the PDF</button>
+    </div>
   </div>
   <p id="scaleNote" class="note footNote"></p>
 </div>

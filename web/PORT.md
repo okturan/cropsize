@@ -33,6 +33,10 @@ does not fix that latency.
 - Several-items detection from one model encode. Every item carries its own fitted angle and
   exports as its own PDF page.
 - Measured overlapping candidates, selection between them, merging selected items and undo.
+- A sheet tray: crops pinned from any file or page print together on one sheet, stacked or
+  side by side at their sizes, flowing onto more pages only when they cannot fit.
+- Detection that votes across several prompts when the box prompt returns the whole frame,
+  so a card photographed on a plain surface is found rather than the surface.
 - Fit zoom, up to four-times zoom, modifier-wheel zoom and drag-to-pan mode.
 - Real-size, known-size and fill-sheet output on A3, A4, A5, Letter, Legal or no sheet.
 - Source-pixel export by default, plus explicit 150, 300 and 600 dpi output.
@@ -48,6 +52,7 @@ does not fix that latency.
 | Imaging maths | `core/crates/imaging-core`, compiled with `wasm-pack`. |
 | Browser orchestration | TypeScript modules for state, view, controls, model work and output. |
 | PDF output | `pdf-lib`; source pixels by default, optional explicit resampling. |
+| Sheet packing | TypeScript in `sheet.ts`: column, row or shelf layout of several items on one page. |
 | Tests | Native Rust tests plus Vitest Browser Mode in headless Chrome. |
 
 The core owns skew, edge snapping, mask cleanup, convex hulls, trimming, rotated extraction,

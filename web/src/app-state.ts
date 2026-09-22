@@ -1,5 +1,6 @@
 import type { Box } from "./lib/detect";
 import type { ObjectCandidate } from "./lib/objects";
+import type { SheetItem } from "./lib/sheet";
 import type { DocumentSource, Scan } from "./lib/source";
 
 export type MaskState = { mask: Float32Array; size: number; box: Box };
@@ -15,6 +16,9 @@ export type PageState = {
   selectedObjectId: number | null;
 };
 
+/** A crop pinned on the output sheet; the signature says which live state it was taken from. */
+export type TrayItem = SheetItem & { id: number; signature: string };
+
 export interface AppState {
   source: DocumentSource | null;
   page: number;
@@ -27,6 +31,8 @@ export interface AppState {
   box: Box;
   objects: ObjectCandidate[];
   selectedObjectId: number | null;
+  /** crops pinned to print together on one sheet, in order */
+  tray: TrayItem[];
   drag: null | { kind: "move" | "handle"; i: number; ox: number; oy: number };
 }
 
@@ -44,5 +50,6 @@ export const state: AppState = {
   box: defaultBox(),
   objects: [],
   selectedObjectId: null,
+  tray: [],
   drag: null,
 };

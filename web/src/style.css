@@ -117,6 +117,8 @@ button:disabled { opacity: .5; cursor: default; }
 .objUndo { padding: 4px 7px; font-size: 11.5px; }
 
 .objRow input[type=checkbox] { margin: 0; cursor: pointer; }
+.trayRow { cursor: default; }
+.trayRow .objLabel { max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 .linkBtn {
   border: 0; background: none; padding: 0; font: inherit; font-size: 12px;
@@ -237,7 +239,7 @@ body { overflow-x: hidden; }
 }
 .settings select, .settings input[type=number] { font-size: 13px; padding: 6px 9px; }
 .settings .unit { font-size: 12.5px; color: var(--muted); display: flex; align-items: center; gap: 6px; }
-.settings #download { margin-left: auto; }
+.settings .sheetActions { margin-left: auto; }
 .readout { gap: 16px; font-size: 12.5px; }
 .readout > span { display: flex; flex-direction: column; line-height: 1.25; }
 .rk { font-size: 10.5px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); }
@@ -249,7 +251,8 @@ body { overflow-x: hidden; }
   .split { flex-direction: column; height: auto; }
   .pane { min-height: 52vh; }
   .gutter { display: none; }
-  .settings #download { margin-left: 0; width: 100%; }
+  .settings .sheetActions { margin-left: 0; width: 100%; }
+  .settings .sheetActions #download { flex: 1; }
 }
 
 .inlineField { display: flex; align-items: center; gap: 7px; font-size: 13px; color: var(--muted); }

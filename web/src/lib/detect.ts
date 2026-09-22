@@ -1,5 +1,5 @@
 /** Turning a SAM mask into a crop box; pixel and geometry cleanup lives in the core. */
-import { Sam } from "./sam";
+import { Sam, type DecodedMask, type Embeddings } from "./sam";
 import type { LoadProgress } from "./model-loader";
 import { cleanMask, snapEdges } from "./imaging-core";
 
@@ -14,7 +14,15 @@ export interface DetectResult {
   maskSize: number;
 }
 
-function maskBounds(mask: Float32Array, size: number): Box | null {
+interface MaskShape {
+  box: Box;
+  /** fraction of the frame the mask covers */
+  area: number;
+  /** how much of its own bounding box the mask fills; a document is close to 1 */
+  rectangularity: number;
+}
+
+function maskShape(mask: Float32Array, size: number): MaskShape | null {
   let x0 = size, y0 = size, x1 = -1, y1 = -1, on = 0;
   for (let y = 0; y < size; y++) {
     for (let x = 0; x < size; x++) {
@@ -28,10 +36,82 @@ function maskBounds(mask: Float32Array, size: number): Box | null {
     }
   }
   if (x1 < 0 || on / (size * size) < 0.02) return null;
-  return { x0: x0 / size, y0: y0 / size, x1: (x1 + 1) / size, y1: (y1 + 1) / size };
+  return {
+    box: { x0: x0 / size, y0: y0 / size, x1: (x1 + 1) / size, y1: (y1 + 1) / size },
+    area: on / (size * size),
+    rectangularity: on / ((x1 - x0 + 1) * (y1 - y0 + 1)),
+  };
 }
 
 const area = (box: Box) => (box.x1 - box.x0) * (box.y1 - box.y0);
+
+function iou(a: Box, b: Box): number {
+  const overlap = Math.max(0, Math.min(a.x1, b.x1) - Math.max(a.x0, b.x0))
+    * Math.max(0, Math.min(a.y1, b.y1) - Math.max(a.y0, b.y0));
+  const union = area(a) + area(b) - overlap;
+  return union > 0 ? overlap / union : 0;
+}
+
+/** Sides of the box lying on the frame edge; three or four means the frame, not a thing in it. */
+function edgesTouched(box: Box, reach = 0.015): number {
+  return [box.x0, box.y0, 1 - box.x1, 1 - box.y1].filter(distance => distance <= reach).length;
+}
+
+interface Candidate extends MaskShape { decoded: DecodedMask }
+
+/**
+ * Whether a mask could be the document rather than the surface it lies on or a detail of it.
+ * Shape carries this decision, not the model's own score: on a phone photo of an ID card the
+ * card comes back with an IoU score of 0.004 from one prompt and 0.99 from the next, while its
+ * rectangularity is above 0.96 every time.
+ */
+const documentLike = (shape: MaskShape) =>
+  shape.area <= 0.85 && shape.rectangularity >= 0.88 && edgesTouched(shape.box) < 3;
+
+/**
+ * Ask for the document from many places at once and let the answers vote.
+ *
+ * A single point in the middle of a card lands on the smoothest part of it, and the
+ * highest-scoring mask for that point is a speck of text rather than the card. Points spread
+ * over the frame each propose three masks; the ones shaped like a document are grouped by
+ * overlap, and the group proposed from the most places wins. Everything is one encode; the
+ * dozen decodes cost well under a second.
+ */
+async function voteForDocument(
+  sam: Sam, embeddings: Embeddings, width: number, height: number,
+): Promise<Candidate | null> {
+  const prompts: Parameters<Sam["decodeAll"]>[1][] = [
+    { box: [width * 0.10, height * 0.10, width * 0.90, height * 0.90] },
+    { box: [width * 0.20, height * 0.20, width * 0.80, height * 0.80] },
+  ];
+  const grid = 3;
+  for (let gy = 0; gy < grid; gy++) {
+    for (let gx = 0; gx < grid; gx++) {
+      prompts.push({ points: [[(gx + 0.5) / grid * width, (gy + 0.5) / grid * height, 1]] });
+    }
+  }
+  const candidates: Candidate[] = [];
+  for (const prompt of prompts) {
+    for (const decoded of await sam.decodeAll(embeddings, prompt)) {
+      const shape = maskShape(decoded.mask, decoded.size);
+      if (shape && documentLike(shape)) candidates.push({ ...shape, decoded });
+    }
+  }
+  const groups: Candidate[][] = [];
+  for (const candidate of candidates) {
+    const group = groups.find(members => iou(members[0]!.box, candidate.box) >= 0.8);
+    if (group) group.push(candidate);
+    else groups.push([candidate]);
+  }
+  const winner = groups.sort((a, b) =>
+    (b.length - a.length) || (area(b[0]!.box) - area(a[0]!.box)))[0];
+  if (!winner) return null;
+  return winner.reduce((best, member) => {
+    const better = (member.rectangularity - best.rectangularity)
+      || (member.decoded.score - best.decoded.score);
+    return better > 0 ? member : best;
+  });
+}
 
 export async function detect(
   sam: Sam, img: ImageData, onProgress: (p: LoadProgress) => void,
@@ -44,26 +124,23 @@ export async function detect(
     width * 0.04, height * 0.04, width * 0.96, height * 0.96,
   ];
   let result = await sam.decode(embeddings, { box: boxPrompt });
-  let bounds = maskBounds(result.mask, result.size);
+  let shape = maskShape(result.mask, result.size);
   let how = "box prompt";
 
-  // A near-full-frame answer is usually the platen. Ask at the centre and prefer that
-  // answer only when it isolates a smaller object.
-  if (!bounds || area(bounds) > 0.85) {
-    const alternative = await sam.decode(embeddings, {
-      points: [[width / 2, height / 2, 1]],
-    });
-    const alternativeBounds = maskBounds(alternative.mask, alternative.size);
-    if (alternativeBounds && area(alternativeBounds) < 0.85) {
-      result = alternative;
-      bounds = alternativeBounds;
-      how = "centre point, the box prompt found the whole frame";
+  // A near-full-frame or ragged answer is the platen, the desk or the sheet of paper the
+  // document was photographed on. Look for a document-shaped thing inside it instead.
+  if (!shape || !documentLike(shape)) {
+    const voted = await voteForDocument(sam, embeddings, width, height);
+    if (voted) {
+      result = voted.decoded;
+      shape = voted;
+      how = "voted from several prompts, the box prompt found the whole frame";
     }
   }
-  if (!bounds) throw new Error("nothing found in this scan");
+  if (!shape) throw new Error("nothing found in this scan");
 
   return {
-    box: await snapEdges(img, bounds),
+    box: await snapEdges(img, shape.box),
     score: result.score,
     note: `${how}, score ${result.score.toFixed(3)}`,
     mask: await cleanMask(result.mask, result.size),

@@ -55,15 +55,19 @@ until it has been verified on real hardware.
 ```bash
 git clone https://github.com/okturan/cropsize.git
 cd cropsize
-./run.sh
+python run.py        # any OS; on Windows use: py run.py
 ```
 
 Open <http://localhost:8077> and click **Try the sample**. That is the whole tour.
+The launcher creates the virtualenv, installs requirements and serves the app; it is
+the same one command on macOS, Linux and Windows (`./run.sh` still works on Unix).
 
-For real work you want the segmentation model too. One command, then restart:
+For real work you want the segmentation model too. One command into the project's own
+virtualenv (start the app once first, if only to create `.venv`), then restart:
 
 ```bash
-./.venv/bin/pip install -r requirements-sam.txt
+./.venv/bin/pip install -r requirements-sam.txt        # macOS/Linux
+.venv\Scripts\pip install -r requirements-sam.txt      # Windows
 ```
 
 Weights arrive from Hugging Face the first time you use them, about 320 MB, and stay on disk
@@ -80,6 +84,11 @@ Use **Find several items** for a flatbed holding more than one card, photograph 
 model encodes the scan once, lists each item with its own size and angle, and exports one PDF
 page per item. If SAM proposes several overlapping boundaries, the choices are shown with
 their measurements. Tick two rows to merge them; the merged row keeps an undo button.
+
+To print the front and back of a card on one page, crop the first side and press **Add to
+sheet**. Then open the other side; its crop appears under the pinned one in the preview, and
+the PDF carries both at their sizes. Pin that one too if a third is coming. Each pinned item
+is listed above the panes with its measurement and can be taken off again.
 
 Then choose how big it should print. **Keep real size** uses the measurement it took off the
 scan. **Scale to a known size** forces an exact width, with presets for a passport spread, a
@@ -139,8 +148,11 @@ It corrects rotation, not perspective. Flatbed scans have no keystone to fix, so
 taken at an angle with a phone will not be squared up.
 
 The first browser run is not quick. In the recorded production run, the cached base-plus
-model still took 16.255 seconds to encode the sample. The Rust imaging core fixes parity and
-keeps the geometry in one tested implementation; it does not make ONNX inference fast.
+model still took 16.255 seconds to encode the sample. The page starts pulling the four
+weight files in the background the moment it opens, so by the time you have picked a scan
+the download is usually already done; the session itself is built off the main thread, so
+the tab stays responsive while it compiles. The Rust imaging core fixes parity and keeps
+the geometry in one tested implementation; it does not make ONNX inference fast.
 
 Browser tabs do not share scans. The local Python server serializes access to its one cached
 predictor so concurrent requests cannot replace each other's images.
@@ -168,9 +180,12 @@ so a crop box means the same thing on screen as it does in the file.
 ## Tests
 
 ```bash
+python run.py &        # once, to create .venv; or python -m venv .venv
 ./.venv/bin/pip install pytest
 ./.venv/bin/pytest tests/ -q
 ```
+
+On Windows use `.venv\Scripts\pip` and `.venv\Scripts\pytest`.
 
 They cover what would go wrong quietly rather than loudly. Real size surviving a crop. The
 same measurement at every resolution. Page geometry to half a millimetre. Two presets that

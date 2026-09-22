@@ -18,6 +18,7 @@ import {
   type ObjectCandidate,
 } from "./lib/objects";
 import { downloadBytes } from "./lib/constants";
+import { warmCache } from "./lib/model-loader";
 import { turnBox, turnMask } from "./app-controls";
 import { createOutputController } from "./app-output";
 import { defaultBox, state as S, type PageState } from "./app-state";
@@ -47,10 +48,23 @@ const layout = (): Layout => ({
     ? "source" : Number($<HTMLSelectElement>("resolution").value)) as OutputDpi,
 });
 
+/**
+ * What the live crop is made of, so the sheet knows whether it already holds it. Anything
+ * that changes the pixels or the printed size is in here; the sheet and margin are not,
+ * because they change the page around the items rather than the items.
+ */
+const liveSignature = (): string => JSON.stringify([
+  S.scan?.name, S.page, S.skew, S.selectedObjectId,
+  [S.box.x0, S.box.y0, S.box.x1, S.box.y1].map(v => v.toFixed(4)),
+  $<HTMLInputElement>("clahe").value, $<HTMLInputElement>("stretch").checked,
+  $<HTMLInputElement>("trim").checked, currentFit, $<HTMLSelectElement>("preset").value,
+]);
+
 const output = createOutputController(
   S,
   layout,
   () => S.objects.length === 0 && $<HTMLInputElement>("trim").checked ? S.mask : null,
+  liveSignature,
 );
 const refreshOutput = () => output.refresh();
 const { draw } = createScanView(S, () => {
@@ -103,6 +117,42 @@ function showProgress(on: boolean, label?: string) {
   $("progress").hidden = !on;
   if (label) $("progressLabel").textContent = label;
 }
+
+/**
+ * The model runtime arrives from a CDN script tag. If it never executed — blocked
+ * network, filtering proxy, an integrity mismatch — nothing downstream can work, so say
+ * so now instead of failing mid-detection with a message about masks.
+ */
+if (typeof ort === "undefined") {
+  setStatus("runtime failed to load — refresh, or check the network");
+  for (const id of ["sample", "file", "file2"] as const) {
+    const el = document.getElementById(id) as HTMLButtonElement | HTMLInputElement | null;
+    if (el) el.disabled = true;
+  }
+}
+
+/* ------------------------------------------------------- background model warm-up */
+let warmAbort: AbortController | undefined;
+
+/** The weights can start moving while the user is still reading the page. When a scan is
+ *  then dropped, detect() finds its four files cached and skips the download entirely. */
+function warmModel() {
+  if (typeof ort === "undefined") return;
+  const controller = new AbortController();
+  warmAbort = controller;
+  warmCache(quality, "fp16", controller.signal,
+    p => setStatus(`warming up — ${MB(p.loadedBytes)} of ${MB(p.totalBytes)} in background`))
+    .catch(() => undefined)          // offline or blocked: detect() retries when needed
+    .finally(() => { if (!controller.signal.aborted) void reportModelState(); });
+}
+
+const whenIdle = (fn: () => void): void => {
+  if (typeof window.requestIdleCallback === "function") {
+    window.requestIdleCallback(fn, { timeout: 4000 });
+  } else {
+    window.setTimeout(fn, 1500);
+  }
+};
 
 function rememberPage() {
   if (!S.scan || !S.original) return;
@@ -204,9 +254,20 @@ async function selectPage(index: number) {
 }
 
 async function open(loader: () => Promise<DocumentSource>) {
+  warmAbort?.abort();                    // a real load outranks the background warm-up
   $("drop").hidden = true;
   $("dropError").hidden = true;
   showProgress(true, "Reading the scan");
+  if (typeof ort === "undefined") {
+    $("app").hidden = true;
+    $("start").hidden = false;
+    $("drop").hidden = false;
+    $("dropError").textContent =
+      "The model runtime did not load, so detection cannot run. Refresh the page.";
+    $("dropError").hidden = false;
+    showProgress(false);
+    return;
+  }
   try {
     const source = await loader();
     if (S.source) await S.source.close();
@@ -438,6 +499,55 @@ async function toggleSeveralItems() {
   }
 }
 
+/* -------------------------------------------------------------------- sheet tray */
+function renderTray() {
+  const panel = $("trayPanel");
+  const list = $("trayList");
+  panel.hidden = S.tray.length === 0;
+  $("trayCount").textContent = S.tray.length
+    ? `${S.tray.length} on the sheet` : "";
+  list.replaceChildren();
+  S.tray.forEach((item, index) => {
+    const row = document.createElement("li");
+    row.className = "objRow trayRow";
+    const measured = item.mmPerPx
+      ? [item.image.width * item.mmPerPx, item.image.height * item.mmPerPx]
+        .map(v => Math.round(v * 10) / 10) : null;
+    row.innerHTML = `<span class="objNum">${index + 1}</span>`
+      + `<span class="objLabel"></span>`
+      + `<span class="objSize">${measured ? `${measured[0]} by ${measured[1]} mm` : "scale unknown"}</span>`;
+    const label = row.querySelector<HTMLElement>(".objLabel")!;
+    label.textContent = item.label;
+    label.title = item.label;
+    const remove = document.createElement("button");
+    remove.className = "objDel";
+    remove.type = "button";
+    remove.title = `Take item ${index + 1} off the sheet`;
+    remove.textContent = "×";
+    remove.addEventListener("click", () => {
+      S.tray = S.tray.filter(candidate => candidate.id !== item.id);
+      renderTray();
+      refreshOutput();
+    });
+    row.append(remove);
+    list.append(row);
+  });
+}
+
+$("addToSheet").addEventListener("click", async () => {
+  const added = await output.addLiveToSheet();
+  if (!added) return;
+  renderTray();
+  $("note").textContent = S.tray.length === 1
+    ? "Pinned on the sheet. Now open the other side; its crop will join this one on the page."
+    : `Pinned. ${S.tray.length} items on the sheet.`;
+});
+$("clearTray").addEventListener("click", () => {
+  S.tray = [];
+  renderTray();
+  refreshOutput();
+});
+
 function updateSourceResolutionLabel(scan = S.scan) {
   const option = $<HTMLSelectElement>("resolution")
     .querySelector<HTMLOptionElement>('option[value="source"]');
@@ -523,13 +633,16 @@ $("rot180").addEventListener("click", () => turn(2));
 
 $("model").addEventListener("change", async e => {
   quality = (e.target as HTMLSelectElement).value as Quality;
+  const stale = sam;
   sam = new Sam(quality, "fp16");          // a session is tied to its weights
+  void stale.release();                    // free the old native sessions now, not at GC
   S.objects = [];
   mergeSelection.clear();
   S.selectedObjectId = null;
   renderObjects();
   await reportModelState();
   if (S.scan) await runDetect();
+  else whenIdle(warmModel);              // start fetching the freshly chosen weights too
 });
 
 // Redo the straightening by hand. Detection ran against the old angle, so say so rather
@@ -598,7 +711,9 @@ $("download").addEventListener("click", async () => {
   if (!S.scan) return;
   const btn = $<HTMLButtonElement>("download");
   btn.disabled = true;
-  btn.textContent = S.objects.length > 1 ? `Writing ${S.objects.length} pages` : "Writing the PDF";
+  btn.textContent = S.tray.length
+    ? "Writing the sheet"
+    : S.objects.length > 1 ? `Writing ${S.objects.length} pages` : "Writing the PDF";
   try {
     const blob = await output.download();
     const a = document.createElement("a");
@@ -619,6 +734,7 @@ addEventListener("resize", () => {
 });
 
 void reportModelState();
+whenIdle(warmModel);
 if (new URLSearchParams(location.search).get("sample")) {
   addEventListener("DOMContentLoaded", () => $("sample").click());
 }

@@ -11,9 +11,20 @@ deployment. Their canonical files stay wherever their owner keeps them. On this 
 ignored local paths are symlinks:
 
 ```text
-fixtures/private/ilkyaz.pdf -> /Users/okan/Downloads/ilkyaz pspt.pdf
-fixtures/private/irene.pdf  -> /Users/okan/Downloads/irene pspt.pdf
+fixtures/private/ilkyaz.pdf -> /Users/okan/Documents/ilkyaz pspt.pdf
+fixtures/private/irene.pdf  -> /Users/okan/Documents/irene pspt.pdf
 ```
+
+Two further ignored links hold phone photos of an ID card lying on a plain surface, front
+and back. They are not in the manifest; `web/tests/detect-photo.test.ts` uses them to make
+sure the card is found rather than the surface, and passes trivially where they are absent:
+
+```text
+fixtures/private/okan-id-front.png -> /Users/okan/Downloads/IMG_4498.png
+fixtures/private/okan-id-back.png  -> /Users/okan/Downloads/IMG_4499.png
+```
+
+If a link's target moves, the private rows skip silently; check with `ls -L`.
 
 On another machine, either create those two ignored links or set
 `CROPSIZE_PRIVATE_FIXTURES_DIR` to a directory containing the original filenames recorded in
@@ -22,7 +33,8 @@ the manifest. Tests skip private rows when neither source exists; the public row
 The reference corpus command is:
 
 ```bash
-CROPSIZE_RUN_MODEL_FIXTURES=1 ./.venv/bin/pytest tests/test_corpus.py -q
+CROPSIZE_RUN_MODEL_FIXTURES=1 ./.venv/bin/pytest tests/test_corpus.py -q          # macOS/Linux
+$env:CROPSIZE_RUN_MODEL_FIXTURES = 1; .\.venv\Scripts\pytest tests\test_corpus.py -q   # Windows
 ```
 
 Model-backed rows are opt-in so the ordinary suite still needs no model weights.
@@ -31,5 +43,6 @@ Rust does not parse PDFs in its test build. Materialise deterministic grayscale 
 that suite after installing the private links:
 
 ```bash
-./.venv/bin/python scripts/materialize_corpus.py
+./.venv/bin/python scripts/materialize_corpus.py        # macOS/Linux
+.\.venv\Scripts\python scripts\materialize_corpus.py    # Windows
 ```
