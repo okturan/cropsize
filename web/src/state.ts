@@ -1,3 +1,4 @@
+import type { CardFit } from "./lib/card";
 import type { Box } from "./lib/detect";
 import type { ObjectCandidate } from "./lib/objects";
 import type { SheetItem } from "./lib/sheet";
@@ -14,6 +15,7 @@ export type PageState = {
   skew: number;
   mask: MaskState | null;
   box: Box;
+  card: CardFit | null;
   note: Note;
   objects: ObjectCandidate[];
   selectedObjectId: number | null;
@@ -32,6 +34,8 @@ export interface AppState {
   skew: number;
   mask: MaskState | null;
   box: Box;
+  /** a card's fitted edges, when detection found an ID-1 card; the output then squares it up */
+  card: CardFit | null;
   objects: ObjectCandidate[];
   selectedObjectId: number | null;
   /** crops pinned to print together on one sheet, in order */
@@ -51,6 +55,7 @@ export const state: AppState = {
   skew: 0,
   mask: null,
   box: defaultBox(),
+  card: null,
   objects: [],
   selectedObjectId: null,
   tray: [],

@@ -5,6 +5,7 @@
  */
 import { ui } from "./dom";
 import { turnBox, turnMask } from "./geometry";
+import { fitCard, turnCard, type CardFit } from "./lib/card";
 import { detect, type DetectResult } from "./lib/detect";
 import { applyTone, estimateSkew } from "./lib/imaging-core";
 import {
@@ -65,6 +66,7 @@ export function createWorkspace(deps: Deps) {
       skew: S.skew,
       mask: S.mask ? { ...S.mask, box: { ...S.mask.box } } : null,
       box: { ...S.box },
+      card: S.card,
       note,
       objects: S.objects,
       selectedObjectId: S.selectedObjectId,
@@ -89,6 +91,7 @@ export function createWorkspace(deps: Deps) {
     S.scan = { ...saved.scan, image: rotate(saved.original, saved.skew) };
     S.mask = saved.mask ? { ...saved.mask, box: { ...saved.mask.box } } : null;
     S.box = { ...saved.box };
+    S.card = saved.card;
     S.objects = saved.objects;
     S.selectedObjectId = saved.selectedObjectId;
     S.drag = null;
@@ -138,6 +141,7 @@ export function createWorkspace(deps: Deps) {
       S.objects = [];
       S.selectedObjectId = null;
       S.box = defaultBox();
+      S.card = null;
       S.drag = null;
       merging.clear();
       ui.fileName.textContent = scan.name;
@@ -165,9 +169,16 @@ export function createWorkspace(deps: Deps) {
   }
 
   /* -------------------------------------------------------------------- detection */
-  function describe(result: DetectResult): Note {
+  function describe(result: DetectResult, card: CardFit | null): Note {
     const straightened = Math.abs(S.skew) >= 0.05
       ? ` Straightened by ${Math.abs(S.skew).toFixed(1)}°.` : "";
+    if (card) {
+      return {
+        text: `Found the card and squared it up.${straightened}`,
+        detail: "Its four edges were measured at full resolution, so glare and shadow stay out, "
+          + "and each corner is rounded as the card is. Drag the box to crop by hand instead.",
+      };
+    }
     return {
       text: `${result.method === "vote" ? "Found the document in the photo." : "Found the document."}${straightened}`,
       detail: result.method === "vote"
@@ -202,13 +213,18 @@ export function createWorkspace(deps: Deps) {
       update();
       return;
     }
+    // A card photographed with a phone: measure its edges at full resolution. No model
+    // work, so it runs outside the queue; a failed fit leaves the box, as before.
+    const skew = S.skew;
+    const card = await fitCard(image, result.box, skew).catch(() => null);
     run.close();
-    // The scan changed while the model ran (a turn, a new tilt): this answer is for an image
-    // that is no longer on screen.
+    // The scan changed while this ran (a turn, a new tilt): this answer is for an image that
+    // is no longer on screen.
     if (S.scan?.image !== image) return;
     S.box = { ...result.box };
     S.mask = { mask: result.mask, size: result.maskSize, box: { ...result.box } };
-    setNote(describe(result));
+    S.card = card;
+    setNote(describe(result, card));
     update();
   }
 
@@ -324,6 +340,7 @@ export function createWorkspace(deps: Deps) {
     S.original = quarterTurns(S.original, k);
     S.scan = { ...S.scan, image: rotate(S.original, S.skew) };
     S.box = turnBox(S.box, k);
+    if (S.card) S.card = turnCard(S.card, k);
     if (S.mask) {
       S.mask = { mask: turnMask(S.mask.mask, S.mask.size, k), size: S.mask.size, box: turnBox(S.mask.box, k) };
     }
@@ -338,6 +355,7 @@ export function createWorkspace(deps: Deps) {
     showSkew();
     S.scan = { ...S.scan, image: rotate(S.original, degrees) };
     S.mask = null;
+    S.card = null;
     S.objects = [];
     S.selectedObjectId = null;
     merging.clear();
@@ -429,8 +447,19 @@ export function createWorkspace(deps: Deps) {
     deps.refresh();
   }
 
+  /** The crop box was moved by hand: that replaces the fitted card edges. */
+  function cropEdited() {
+    if (S.card) {
+      S.card = null;
+      setNote({ text: "Cropping to your box. Press Detect again to fit the card's edges." });
+      deps.draw();
+    }
+    deps.refresh();
+    remember();
+  }
+
   return {
-    open, selectPage, turn, setSkew, retone,
+    open, selectPage, turn, setSkew, retone, cropEdited,
     redetect: () => detectInto(),
     toggleObjects, mergeTicked, addToSheet, clearSheet,
     setNote, remember,

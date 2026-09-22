@@ -199,3 +199,48 @@ export async function mergeRotatedRectangles(
 }
 
 export type { RgbaFrame };
+
+/** A card's four fitted edges: corners top-left, top-right, bottom-right, bottom-left. */
+export interface CardEdges {
+  quad: [number, number, number, number, number, number, number, number];
+  /** per side, top, right, bottom, left: scatter of the edge points about the line, pixels */
+  scatter: [number, number, number, number];
+  /** per side: the fraction of measured points that agreed with the fitted line */
+  agreement: [number, number, number, number];
+}
+
+/** Fit a card's edges inside a rough box in pixels, in a frame straightened by `turn`. */
+export async function fitCardEdges(
+  image: ImageData, box: [number, number, number, number], turn: number,
+): Promise<CardEdges | null> {
+  const frame = await frameInCore(image);
+  try {
+    const out = frame.fit_card(box[0], box[1], box[2], box[3], turn);
+    if (out.length !== 16) return null;
+    const v = Array.from(out);
+    return {
+      quad: v.slice(0, 8) as CardEdges["quad"],
+      scatter: v.slice(8, 12) as CardEdges["scatter"],
+      agreement: v.slice(12, 16) as CardEdges["agreement"],
+    };
+  } finally {
+    frame.free();
+  }
+}
+
+/** Square up a quadrilateral into a width by height image, then round its corners starting
+ *  from `radius` pixels, each corner measured on its own. */
+export async function squareUpCard(
+  image: ImageData, quad: readonly number[], width: number, height: number, radius: number,
+): Promise<{ image: ImageData; radii: number[] }> {
+  const frame = await frameInCore(image);
+  let card: RgbaFrame | undefined;
+  try {
+    card = frame.warp_quad(Float64Array.from(quad), width, height);
+    const radii = radius > 0 ? Array.from(card.round_card_corners(radius)) : [];
+    return { image: imageFromFrame(card, width, height), radii };
+  } finally {
+    card?.free();
+    frame.free();
+  }
+}

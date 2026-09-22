@@ -296,6 +296,26 @@ try {
   if (second.endsWith(".jpg")) {
     const printed = await text("#factOut");
     check("a photographed ID card prints at ID card size", /85\.\d by 54/.test(printed) || /54 by 85/.test(printed), printed);
+    check("a photographed card is squared up on its own edges", /squared it up/.test(await note()), await note());
+    check("the scan pane shows the fitted card", (await canvas.getAttribute("data-card")) === "fitted");
+    // the pinned sheet is not the point here; take it off, then crop by hand
+    await page.click("#clearTray");
+    await settled();
+    const cardBox = await page.evaluate(() => JSON.parse(document.getElementById("canvas").dataset.box));
+    const r = await canvas.boundingBox();
+    const cx = r.x + cardBox.x1 * r.width, cy = r.y + cardBox.y1 * r.height;
+    await page.mouse.move(cx, cy);
+    await page.mouse.down();
+    await page.mouse.move(cx - 25, cy - 25, { steps: 5 });
+    await page.mouse.up();
+    await settled();
+    check("dragging the box switches to cropping by hand", /Cropping to your box/.test(await note())
+      && (await canvas.getAttribute("data-card")) === "", await note());
+    await page.click("#redetect");
+    await idle();
+    check("detect again fits the card again", (await canvas.getAttribute("data-card")) === "fitted", await note());
+    await page.click("#addToSheet");
+    await settled();
   }
   await page.click("#clearTray");
   await settled();

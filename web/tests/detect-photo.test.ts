@@ -1,8 +1,8 @@
 /**
- * A phone photo of a card on a plain surface. The box prompt answers with the whole frame
- * here, and a single centre point answers with a speck of text on the card, so this locks in
- * the multi-prompt vote that finds the card itself. The photos are private fixtures; see
- * fixtures/README.md.
+ * Phone photos of cards. On a plain surface the box prompt answers with the whole frame and a
+ * single centre point answers with a speck of text on the card, so this locks in the
+ * multi-prompt vote that finds the card itself; card-photo.test.ts then checks the fitted
+ * edges. The photos are private fixtures; see fixtures/README.md.
  */
 import * as ortModule from "onnxruntime-web";
 import { expect, test } from "vitest";

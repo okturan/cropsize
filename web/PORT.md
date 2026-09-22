@@ -50,6 +50,10 @@ does not fix that latency.
   screen is unchanged, so detecting again or finding several items skips the encoder.
 - Phone photos of ID-1 cards print at 85.6 by 54 mm under Real size; Known size turns its
   preset to match an upright crop.
+- ID-1 cards are squared up on their own edges. The model's box only locates the card; each
+  side is then fitted at full resolution in the Rust core (`card.rs`), the four lines give
+  the corners, a perspective warp squares the card, and each corner is rounded to its
+  measured radius. A fit that does not agree with itself falls back to the box.
 
 ## Implementation map
 

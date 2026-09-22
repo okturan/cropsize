@@ -56,6 +56,7 @@ export function createScanView(state: AppState, onCropCommit: () => void) {
     context.drawImage(canvasOf(image), 0, 0, canvas.width, canvas.height);
     // The crop, readable from outside: the end-to-end test drags its corners.
     canvas.dataset.box = JSON.stringify(state.box);
+    canvas.dataset.card = state.card ? "fitted" : "";
     const colour = accent();
 
     if (state.objects.length) {
@@ -88,11 +89,32 @@ export function createScanView(state: AppState, onCropCommit: () => void) {
     context.fillStyle = "rgba(10,12,16,.45)";
     context.beginPath();
     context.rect(0, 0, canvas.width, canvas.height);
-    context.rect(box.x, box.y, box.w, box.h);
+    if (state.card) {
+      // The fitted card: darken everything outside its four measured edges.
+      const q = state.card.quad;
+      context.moveTo(q[0]! * canvas.width, q[1]! * canvas.height);
+      for (let i = 1; i < 4; i++) context.lineTo(q[2 * i]! * canvas.width, q[2 * i + 1]! * canvas.height);
+      context.closePath();
+    } else {
+      context.rect(box.x, box.y, box.w, box.h);
+    }
     context.fill("evenodd");
     context.strokeStyle = colour;
     context.lineWidth = 2 * dpr;
+    if (state.card) {
+      const q = state.card.quad;
+      context.beginPath();
+      context.moveTo(q[0]! * canvas.width, q[1]! * canvas.height);
+      for (let i = 1; i < 4; i++) context.lineTo(q[2 * i]! * canvas.width, q[2 * i + 1]! * canvas.height);
+      context.closePath();
+      context.stroke();
+      // the box stays as a faint guide: dragging it switches to cropping by hand
+      context.globalAlpha = 0.45;
+      context.setLineDash([6 * dpr, 5 * dpr]);
+      context.lineWidth = dpr;
+    }
     context.strokeRect(box.x + dpr, box.y + dpr, box.w - 2 * dpr, box.h - 2 * dpr);
+    context.setLineDash([]);
     context.fillStyle = colour;
     for (const [x, y] of corners()) context.fillRect(x - handle / 2, y - handle / 2, handle, handle);
     context.restore();

@@ -31,7 +31,9 @@ fixtures/private/ilkyaz-id-back.jpg     -> <iCloud>/LongTermStorage/People/İlky
 ```
 
 The first pair is a card lying on a plain surface; the other two are photos taken tight on a
-card, where the frame itself is the document.
+card, where the frame itself is the document. `web/tests/card-photo.test.ts` pins the fitted
+card corners on all six to within 3 pixels; those corners were checked by eye on magnified
+overlays, on the card face and outside the glare and the shadow on every side.
 
 If a link's target moves, the private rows skip silently; check with `ls -L`.
 

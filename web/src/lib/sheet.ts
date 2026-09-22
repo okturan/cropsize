@@ -118,7 +118,7 @@ export function plan(scan: Scan, box: Box, layout: Layout): Placed {
   });
   const label = PRESETS[preset].label;
   const note = recognised
-    ? `this image carries no scale, and it has the shape of an ${label.toLowerCase()}, so it prints at that size`
+    ? `this image carries no scale, and it has the shape of an ${label}, so it prints at that size`
     : result.noteCode === 0
       ? "as measured on the scan"
       : result.noteCode === 1

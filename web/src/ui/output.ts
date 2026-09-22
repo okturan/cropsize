@@ -3,6 +3,7 @@
  * composed by the same layout code that writes the file, so it cannot drift from it.
  */
 import { ui } from "../dom";
+import { extractCard, type CardFit } from "../lib/card";
 import type { Box } from "../lib/detect";
 import { extractObject } from "../lib/objects";
 import {
@@ -31,8 +32,25 @@ export function createOutputController(
   const selectedObject = () =>
     state.objects.find(item => item.id === state.selectedObjectId) ?? null;
 
+  // The squared-up card for the current image and fit, made once: settings changes recompose
+  // the page many times and the warp is the slow part.
+  let cardMemo: { image: ImageData; card: CardFit; result: Promise<ImageData> } | null = null;
+  function squaredCard(image: ImageData, card: CardFit): Promise<ImageData> {
+    if (cardMemo?.image !== image || cardMemo.card !== card) {
+      cardMemo = { image, card, result: extractCard(image, card).then(out => out.image) };
+    }
+    return cardMemo.result;
+  }
+
   async function activeOutput(): Promise<{ scan: Scan; box: Box }> {
     const item = selectedObject();
+    if (!item && state.card) {
+      const image = await squaredCard(outputImage(), state.card);
+      return {
+        scan: { ...state.scan!, image, origin: `${state.scan!.origin}; card edges fitted and squared up` },
+        box: fullBox(),
+      };
+    }
     if (!item) return { scan: { ...state.scan!, image: outputImage() }, box: state.box };
     const image = await extractObject(outputImage(), item);
     return {
@@ -183,8 +201,9 @@ export function createOutputController(
       }
       return { blob: await mergePdfPages(pages), filename: `${base}-items.pdf` };
     }
+    const active = await activeOutput();
     return {
-      blob: await exportPdf({ ...state.scan, image: outputImage() }, state.box, getLayout(), getTrim()),
+      blob: await exportPdf(active.scan, active.box, getLayout(), getTrim()),
       filename: `${base}-cropsize.pdf`,
     };
   }

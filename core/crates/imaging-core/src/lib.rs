@@ -2,6 +2,8 @@
 
 use wasm_bindgen::prelude::*;
 
+mod card;
+
 const LIMIT_TENTHS: i32 = 50;
 const WORK_WIDTH: usize = 800;
 const INSET: f64 = 0.08;
@@ -132,6 +134,28 @@ impl RgbaFrame {
             height,
             angle_degrees,
         )
+    }
+
+    /// Fit a card's four edges inside a rough box, in pixels, in a frame straightened by
+    /// `turn` degrees. Returns eight corner coordinates, four edge scatters and four agreement
+    /// fractions, or nothing. See card.rs.
+    pub fn fit_card(&self, x0: f64, y0: f64, x1: f64, y1: f64, turn: f64) -> Vec<f64> {
+        self.fit_card_impl([x0, y0, x1, y1], turn)
+    }
+
+    /// Square up the quadrilateral top-left, top-right, bottom-right, bottom-left into a
+    /// new frame of the given size, with bicubic sampling.
+    pub fn warp_quad(&self, quad: &[f64], width: usize, height: usize) -> Result<RgbaFrame, JsError> {
+        if quad.len() < 8 || width == 0 || height == 0 {
+            return Err(JsError::new("warp_quad needs eight coordinates and a non-empty size"));
+        }
+        Ok(self.warp_quad_impl(quad, width, height))
+    }
+
+    /// Measure each corner's rounding, starting from `standard` pixels, and whiten outside it.
+    /// Returns the four radii used: top-left, top-right, bottom-right, bottom-left.
+    pub fn round_card_corners(&mut self, standard: f64) -> Vec<f64> {
+        self.round_card_corners_impl(standard)
     }
 
     /// Tighten a SAM rectangle against full-resolution edges in its straightened frame.

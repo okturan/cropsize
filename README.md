@@ -95,6 +95,15 @@ the proportions of an ID-1 card, which covers ID cards, residence permits, bank 
 driving licences, it prints at 85.6 by 54 mm and the note under the settings says so.
 Anything else fills the sheet until you pick **Known size**.
 
+Phone photos of ID-1 cards get one more step. The model only says roughly where the card is:
+its answer is 256 by 256 whatever the photo size, and it cannot tell the card's edge from
+the glare on it or the shadow under it. So cropsize measures each of the four edges itself,
+at full resolution, in a narrow band around the model's answer. It keeps the line along
+which the colour changes sharply and consistently, which is the card's edge rather than a
+soft shadow, a glare halo or a printed line. It then squares the card up, which also removes
+the phone's tilt, and rounds each corner to the radius measured on the card. The scan pane
+outlines the fitted card; drag the box to crop by hand instead.
+
 Then choose how big it should print. **Keep real size** uses the measurement it took off the
 scan. **Scale to a known size** forces an exact width, with presets for a passport spread, a
 passport page and an ID card. **Fill the sheet** is the one that is not to scale, and it says
@@ -149,8 +158,9 @@ Skew is measured two independent ways and they agree to a quarter of a degree.
 
 ## What it will not do
 
-It corrects rotation, not perspective. Flatbed scans have no keystone to fix, so a photo
-taken at an angle with a phone will not be squared up.
+It corrects perspective only for ID-1 cards, whose shape is known. Any other document is
+straightened for rotation and cut as an upright box, so a letter photographed at an angle
+will not be squared up.
 
 The first browser run is not quick. In the recorded production run, the cached base-plus
 model still took 16.255 seconds to encode the sample. The page starts pulling the four
