@@ -8,7 +8,7 @@
  *   npm run e2e -- --shots DIR       also save screenshots of each stage
  *   npm run e2e -- --headed          watch it
  *
- * Model weights come from web/public/models/<size>/ when that folder exists (fast, offline),
+ * Model weights come from web/.models/<size>/ when that folder exists (fast, offline),
  * otherwise from Hugging Face. The first model load is throttled so the download bar has
  * something to show, and every progress panel state is recorded along the way.
  */
@@ -58,7 +58,7 @@ async function startServer() {
 
 const server = option("--url") ? null : await startServer();
 const base = option("--url") ?? server.url;
-const local = !option("--url") && existsSync(join(web, "public/models/base-plus"));
+const local = !option("--url") && existsSync(join(web, ".models/base-plus"));
 const appUrl = extra => `${base}?${new URLSearchParams({ ...(local ? { models: "local" } : {}), ...extra })}`;
 
 /* ------------------------------------------------------------------------- browser */

@@ -52,9 +52,8 @@ export const MODELS: Readonly<Record<Quality, ModelSpec>> = {
 } as const;
 
 export function modelBase(quality: Quality): string {
-  // ?models=local serves the weights from this origin instead of Hugging Face, which is how
-  // the app gets exercised offline and in automated capture, where a cross origin fetch of
-  // 78 MB does not settle.
+  // ?models=local loads the weights from this origin instead of Hugging Face: the dev server
+  // serves web/.models/<size>/ (see vite.config.ts), which keeps the end-to-end test offline.
   if (typeof location !== "undefined"
       && new URLSearchParams(location.search).get("models") === "local") {
     // One folder per size: both sizes use the same file names.

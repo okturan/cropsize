@@ -100,8 +100,9 @@ with every loading-panel state recorded, measurement, turns, dragging a corner, 
 again, several items with merge, undo and remove, every print mode, the PDFs themselves, two
 files on one sheet, a two-page PDF, the straighten and contrast controls, and switching
 models. It also fails on any page error, console error or failed request. Weights are served
-from `web/public/models/<size>/` when that ignored folder exists, which keeps it offline and
-fast; otherwise they come from Hugging Face.
+from `web/.models/<size>/` when that ignored folder exists, which keeps it offline and fast;
+otherwise they come from Hugging Face. The dev server alone serves that folder, so it can
+never end up in a build.
 
 ## Run and deploy
 
