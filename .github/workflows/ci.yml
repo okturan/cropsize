@@ -32,7 +32,12 @@ jobs:
           "
 
   web:
-    runs-on: ubuntu-latest
+    # Windows is in the matrix on purpose: the build used to fail there outright,
+    # because npm runs scripts through cmd.exe and build:core was a shell script.
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
     defaults:
       run:
         working-directory: web

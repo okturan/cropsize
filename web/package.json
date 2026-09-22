@@ -9,7 +9,7 @@
   },
   "scripts": {
     "dev": "vite",
-    "build:core": "../scripts/build-core.sh",
+    "build:core": "node ../scripts/build-core.mjs",
     "test": "npm run build:core && vitest run",
     "build": "npm run build:core && tsc -b && vite build",
     "preview": "vite preview",

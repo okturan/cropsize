@@ -1,6 +1,5 @@
 #!/usr/bin/env bash
+# Unix wrapper around run.py, which is the real launcher and works on Windows too.
 set -euo pipefail
 cd "$(dirname "$0")"
-[ -d .venv ] || python3 -m venv .venv
-./.venv/bin/pip install -q -r requirements.txt
-exec ./.venv/bin/uvicorn app:app --reload --port "${PORT:-8077}"
+exec python3 run.py "$@"

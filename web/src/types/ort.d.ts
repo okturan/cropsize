@@ -14,9 +14,17 @@ declare namespace ort {
     executionProviders?: readonly string[];
     externalData?: readonly ExternalDataEntry[];
   }
+  const env: {
+    wasm: {
+      /** Session build and run happen in a proxy worker instead of the main thread. */
+      proxy?: boolean;
+      numThreads?: number;
+    };
+  };
   class InferenceSession {
     static create(model: ArrayBuffer | string, options?: SessionOptions): Promise<InferenceSession>;
     run(feeds: Record<string, Tensor>): Promise<RunResult>;
+    release(): Promise<void>;
   }
 }
 

@@ -5,8 +5,11 @@
  * weights in a sidecar `.onnx_data`, so the filename allowlist must admit that extension
  * and artifacts are fetched in pairs. tinyvoice's `/\.onnx$/` pattern rejects them.
  */
-import { MODELS, artifactSize, modelBase, type Precision, type Quality } from "./constants";
-import { getCached, setCache } from "./model-cache";
+import {
+  MODELS, artifactNames, artifactSize, modelBase,
+  type Precision, type Quality,
+} from "./constants";
+import { cachedKeys, getCached, setCache } from "./model-cache";
 
 const MODEL_FILE_PATTERN = /^[a-z0-9][a-z0-9_.-]*\.onnx(_data)?$/iu;
 const MAX_MODEL_BYTES = 512 * 1024 * 1024;
@@ -90,26 +93,62 @@ export async function loadArtifacts(
   quality: Quality,
   precision: Precision,
   which: "vision_encoder" | "prompt_encoder_mask_decoder",
-  onProgress: (p: LoadProgress) => void,
+  onChunk: (delta: number) => void,
   signal?: AbortSignal,
 ): Promise<ModelArtifacts> {
   const suffix = precision === "fp16" ? "_fp16" : "";
   const graphName = `${which}${suffix}.onnx`;
   const weightsName = `${graphName}_data`;
-  const totalBytes = artifactSize(quality, graphName) + artifactSize(quality, weightsName);
-
-  let loaded = 0;
-  const bump = (delta: number) => {
-    loaded += delta;
-    onProgress({
-      fraction: Math.min(loaded / totalBytes, 1),
-      status: `${which.replace(/_/g, " ")} — ${(loaded / 1048576).toFixed(0)} / ${(totalBytes / 1048576).toFixed(0)} MB`,
-      loadedBytes: loaded,
-      totalBytes,
-    });
-  };
-
-  const graph = await fetchExact(quality, graphName, bump, signal);
-  const weights = await fetchExact(quality, weightsName, bump, signal);
+  // Both files at once. The graph is tiny, so this is really about the weight sidecar
+  // not waiting behind a round trip for no reason.
+  const [graph, weights] = await Promise.all([
+    fetchExact(quality, graphName, onChunk, signal),
+    fetchExact(quality, weightsName, onChunk, signal),
+  ]);
   return { graph, weights, weightsName };
+}
+
+export interface WarmProgress {
+  /** 0..1 across only the files that were missing. */
+  fraction: number;
+  loadedBytes: number;
+  totalBytes: number;
+}
+
+/**
+ * Fill the cache in the background, before the user has picked anything. One file at a
+ * time: a warm-up that hogs bandwidth and memory competes with the very page it is
+ * warming up for. Reports progress across just the missing bytes; resolves silently
+ * when everything was already cached.
+ */
+export async function warmCache(
+  quality: Quality,
+  precision: Precision,
+  signal: AbortSignal | undefined,
+  onProgress?: (p: WarmProgress) => void,
+): Promise<void> {
+  const names = artifactNames(quality, precision);
+  const missing: string[] = [];
+  for (const name of names) {
+    const cached = await getCached(artifactKey(quality, name));
+    if (!cached || cached.byteLength !== artifactSize(quality, name)) missing.push(name);
+  }
+  const totalBytes = missing.reduce((sum, name) => sum + artifactSize(quality, name), 0);
+  let loaded = 0;
+  for (const name of missing) {
+    if (signal?.aborted) return;
+    try {
+      await fetchExact(quality, name, delta => {
+        loaded += delta;
+        onProgress?.({
+          fraction: Math.min(loaded / totalBytes, 1),
+          loadedBytes: loaded,
+          totalBytes,
+        });
+      }, signal);
+    } catch (err) {
+      if (signal?.aborted) return;
+      throw err;
+    }
+  }
 }

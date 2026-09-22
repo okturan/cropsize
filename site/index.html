@@ -108,10 +108,12 @@ and the page geometry is what carries the size.</p>
 <h2>Run it</h2>
 <pre><code>git clone https://github.com/okturan/cropsize.git
 cd cropsize
-./run.sh</code></pre>
-<p>Open <code>localhost:8077</code> and click <strong>Try the sample</strong>. That is the whole tour.</p>
-<p>For real work add the model, then restart:</p>
-<pre><code>./.venv/bin/pip install -r requirements-sam.txt</code></pre>
+python run.py</code></pre>
+<p>The same one command on macOS, Linux and Windows (on Windows, <code>py run.py</code>).
+Open <code>localhost:8077</code> and click <strong>Try the sample</strong>. That is the whole tour.</p>
+<p>For real work add the model into the project's own virtualenv, then restart:</p>
+<pre><code>./.venv/bin/pip install -r requirements-sam.txt      # macOS/Linux
+.venv\Scripts\pip install -r requirements-sam.txt    # Windows</code></pre>
 <p>Weights come from Hugging Face the first time you use them, about 320 MB, and stay on disk
 after that.</p>
 
