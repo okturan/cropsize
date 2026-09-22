@@ -22,9 +22,16 @@ and back. They are not in the manifest; `web/tests/detect-photo.test.ts` uses th
 sure the card is found rather than the surface, and passes trivially where they are absent:
 
 ```text
-fixtures/private/okan-id-front.jpg -> <iCloud>/LongTermStorage/People/Okan/Documents/IDs-and-Passports/Okan-TCKimlik-<redacted>-valid2026-2036-photo-front.jpg
-fixtures/private/okan-id-back.jpg  -> <iCloud>/LongTermStorage/People/Okan/Documents/IDs-and-Passports/Okan-TCKimlik-<redacted>-valid2026-2036-photo-back.jpg
+fixtures/private/okan-id-front.jpg     -> <iCloud>/LongTermStorage/People/Okan/Documents/IDs-and-Passports/Okan-TCKimlik-<redacted>-valid2026-2036-photo-front.jpg
+fixtures/private/okan-id-back.jpg      -> <iCloud>/LongTermStorage/People/Okan/Documents/IDs-and-Passports/Okan-TCKimlik-<redacted>-valid2026-2036-photo-back.jpg
+fixtures/private/irene-ikamet-front.jpg -> <iCloud>/LongTermStorage/People/Irene/Documents/IDs-and-Passports/Irene-Ikamet-<redacted>-valid2025-2027-photo-front.jpg
+fixtures/private/irene-ikamet-back.jpg  -> <iCloud>/LongTermStorage/People/Irene/Documents/IDs-and-Passports/Irene-Ikamet-<redacted>-valid2025-2027-photo-back.jpg
+fixtures/private/ilkyaz-id-front.jpg    -> <iCloud>/LongTermStorage/People/İlkyaz/Documents/IDs-and-Passports/İlkyaz-TCKimlik-<redacted>-valid2020-2030-photo-front.jpg
+fixtures/private/ilkyaz-id-back.jpg     -> <iCloud>/LongTermStorage/People/İlkyaz/Documents/IDs-and-Passports/İlkyaz-TCKimlik-<redacted>-valid2020-2030-photo-back.jpg
 ```
+
+The first pair is a card lying on a plain surface; the other two are photos taken tight on a
+card, where the frame itself is the document.
 
 If a link's target moves, the private rows skip silently; check with `ls -L`.
 

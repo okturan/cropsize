@@ -131,7 +131,12 @@ export async function detect(
   // document was photographed on. Look for a document-shaped thing inside it instead.
   if (!shape || !documentLike(shape)) {
     const voted = await voteForDocument(sam, embeddings, width, height);
-    if (voted) {
+    // A photo taken tight on a card is the other case: the frame is the document, and the
+    // only smaller rectangles in it are its chip, photo or QR code. A rectangular
+    // full-frame answer keeps its place against a winner that small.
+    const detail = voted && shape && shape.rectangularity >= 0.88
+      && area(voted.box) < 0.06;
+    if (voted && !detail) {
       result = voted.decoded;
       shape = voted;
       how = "voted from several prompts, the box prompt found the whole frame";
