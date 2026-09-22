@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { turnBox, turnMask } from "../src/app-controls";
+import { turnBox, turnMask } from "../src/geometry";
 
 test("quarter turns preserve a normalized crop through a full revolution", () => {
   const original = { x0: 0.1, y0: 0.2, x1: 0.6, y1: 0.8 };

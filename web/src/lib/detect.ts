@@ -1,14 +1,16 @@
 /** Turning a SAM mask into a crop box; pixel and geometry cleanup lives in the core. */
-import { Sam, type DecodedMask, type Embeddings } from "./sam";
-import type { LoadProgress } from "./model-loader";
+import { Sam, type DecodedMask, type Embeddings, type Prompt } from "./sam";
 import { cleanMask, snapEdges } from "./imaging-core";
+import { silent, type Report } from "./progress";
 
 export interface Box { x0: number; y0: number; x1: number; y1: number }   // normalised
 
 export interface DetectResult {
   box: Box;
   score: number;
-  note: string;
+  /** "frame": the box prompt's answer was the document; "vote": it was the background, so
+   *  a vote across several prompts found the document inside it */
+  method: "frame" | "vote";
   /** the winning mask, kept so the rounded corners can be trimmed later */
   mask: Float32Array;
   maskSize: number;
@@ -77,10 +79,13 @@ const documentLike = (shape: MaskShape) =>
  * overlap, and the group proposed from the most places wins. Everything is one encode; the
  * dozen decodes cost well under a second.
  */
+export const VOTE_PROMPTS = 11;
+
 async function voteForDocument(
   sam: Sam, embeddings: Embeddings, width: number, height: number,
+  onPass: () => void,
 ): Promise<Candidate | null> {
-  const prompts: Parameters<Sam["decodeAll"]>[1][] = [
+  const prompts: Prompt[] = [
     { box: [width * 0.10, height * 0.10, width * 0.90, height * 0.90] },
     { box: [width * 0.20, height * 0.20, width * 0.80, height * 0.80] },
   ];
@@ -96,6 +101,7 @@ async function voteForDocument(
       const shape = maskShape(decoded.mask, decoded.size);
       if (shape && documentLike(shape)) candidates.push({ ...shape, decoded });
     }
+    onPass();
   }
   const groups: Candidate[][] = [];
   for (const candidate of candidates) {
@@ -114,23 +120,29 @@ async function voteForDocument(
 }
 
 export async function detect(
-  sam: Sam, img: ImageData, onProgress: (p: LoadProgress) => void,
+  sam: Sam, img: ImageData, report: Report = silent,
 ): Promise<DetectResult> {
-  await sam.ready(onProgress);
-  const embeddings = await sam.encode(img);
+  await sam.ready(report);
+  const embeddings = await sam.encode(img, report);
   const { width, height } = img;
+  let passes = 0;
+  let planned = 1;
+  const pass = () => report({ phase: "decode", done: ++passes, total: planned });
 
   const boxPrompt: [number, number, number, number] = [
     width * 0.04, height * 0.04, width * 0.96, height * 0.96,
   ];
   let result = await sam.decode(embeddings, { box: boxPrompt });
   let shape = maskShape(result.mask, result.size);
-  let how = "box prompt";
-
+  let method: DetectResult["method"] = "frame";
   // A near-full-frame or ragged answer is the platen, the desk or the sheet of paper the
   // document was photographed on. Look for a document-shaped thing inside it instead.
-  if (!shape || !documentLike(shape)) {
-    const voted = await voteForDocument(sam, embeddings, width, height);
+  const vote = !shape || !documentLike(shape);
+  if (vote) planned += VOTE_PROMPTS;       // decided before the count moves, so it never runs back
+  pass();
+
+  if (vote) {
+    const voted = await voteForDocument(sam, embeddings, width, height, pass);
     // A photo taken tight on a card is the other case: the frame is the document, and the
     // only smaller rectangles in it are its chip, photo or QR code. A rectangular
     // full-frame answer keeps its place against a winner that small.
@@ -139,7 +151,7 @@ export async function detect(
     if (voted && !detail) {
       result = voted.decoded;
       shape = voted;
-      how = "voted from several prompts, the box prompt found the whole frame";
+      method = "vote";
     }
   }
   if (!shape) throw new Error("nothing found in this scan");
@@ -159,7 +171,7 @@ export async function detect(
   return {
     box: await snapEdges(img, bled),
     score: result.score,
-    note: `${how}, score ${result.score.toFixed(3)}`,
+    method,
     mask: await cleanMask(result.mask, result.size),
     maskSize: result.size,
   };

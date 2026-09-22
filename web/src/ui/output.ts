@@ -1,18 +1,21 @@
-import type { AppState, TrayItem } from "./app-state";
-import type { Box } from "./lib/detect";
-import { extractObject } from "./lib/objects";
+/**
+ * The output pane and the PDF: what prints, how big, and on which sheet. The preview is
+ * composed by the same layout code that writes the file, so it cannot drift from it.
+ */
+import { ui } from "../dom";
+import type { Box } from "../lib/detect";
+import { extractObject } from "../lib/objects";
 import {
   composeSheet, cropCanvas, exportPdf, exportSheetPdf, measure, mergePdfPages, plan,
   renderSheetPage, trimToMask,
   type Layout, type SheetItem, type TrimMask,
-} from "./lib/sheet";
-import type { Scan } from "./lib/source";
+} from "../lib/sheet";
+import type { Scan } from "../lib/source";
+import type { AppState, TrayItem } from "../state";
 
-const byId = <T extends HTMLElement = HTMLElement>(id: string) => (
-  document.getElementById(id) as T
-);
+const PREVIEW_DPI = 110;
+const sentence = (text: string) => text.charAt(0).toUpperCase() + text.slice(1);
 const fullBox = (): Box => ({ x0: 0, y0: 0, x1: 1, y1: 1 });
-
 let nextTrayId = 1;
 
 export function createOutputController(
@@ -25,9 +28,8 @@ export function createOutputController(
   let timer: number | undefined;
   let generation = 0;
   const outputImage = () => state.toned ?? state.scan!.image;
-  const selectedObject = () => (
-    state.objects.find(item => item.id === state.selectedObjectId) ?? null
-  );
+  const selectedObject = () =>
+    state.objects.find(item => item.id === state.selectedObjectId) ?? null;
 
   async function activeOutput(): Promise<{ scan: Scan; box: Box }> {
     const item = selectedObject();
@@ -62,26 +64,23 @@ export function createOutputController(
   /** Everything that prints: the pinned items, then the live crop unless it is pinned already. */
   async function sheetItems(): Promise<SheetItem[]> {
     const items: SheetItem[] = [...state.tray];
-    if (!liveOnSheet()) items.push(await liveItem());
+    if (state.scan && !liveOnSheet()) items.push(await liveItem());
     return items;
   }
 
-  function showPreview(canvas: OffscreenCanvas, requested: number) {
-    void canvas.convertToBlob({ type: "image/jpeg", quality: 0.85 }).then(blob => {
-      if (requested !== generation) return;
-      const image = byId<HTMLImageElement>("sheetImg");
-      const old = image.src;
-      image.src = URL.createObjectURL(blob);
-      if (old.startsWith("blob:")) URL.revokeObjectURL(old);
-    });
+  async function showPreview(canvas: OffscreenCanvas, requested: number) {
+    const blob = await canvas.convertToBlob({ type: "image/jpeg", quality: 0.85 });
+    if (requested !== generation) return;
+    const old = ui.sheetImg.src;
+    ui.sheetImg.src = URL.createObjectURL(blob);
+    if (old.startsWith("blob:")) URL.revokeObjectURL(old);
   }
 
   function refreshAddButton() {
-    const button = byId<HTMLButtonElement>("addToSheet");
     const pinned = liveOnSheet();
-    button.disabled = pinned;
-    button.textContent = pinned ? "On the sheet" : "Add to sheet";
-    button.title = pinned
+    ui.addToSheet.disabled = pinned || !state.scan;
+    ui.addToSheet.textContent = pinned ? "On the sheet" : "Add to sheet";
+    ui.addToSheet.title = pinned
       ? "this crop is already pinned on the sheet"
       : "pin this crop on the sheet, then open the other side and crop that too";
   }
@@ -93,40 +92,28 @@ export function createOutputController(
     const placed = plan(active.scan, active.box, layout);
     const measured = measure(active.scan.image, active.box, active.scan.mmPerPx);
 
-    byId("factScan").textContent = measured
-      ? `${measured[0]} by ${measured[1]} mm` : "scale unknown";
-    byId("factOut").textContent = `${placed.contentMm[0]} by ${placed.contentMm[1]} mm`;
-    byId("factSheet").textContent = placed.sheetMm
+    ui.factScan.textContent = measured ? `${measured[0]} by ${measured[1]} mm` : "scale unknown";
+    ui.factOut.textContent = `${placed.contentMm[0]} by ${placed.contentMm[1]} mm`;
+    ui.factSheet.textContent = placed.sheetMm
       ? `${placed.sheetMm[0]} by ${placed.sheetMm[1]} mm` : "no sheet";
-    byId("scaleNote").textContent = `${placed.note}. ${state.scan!.origin}.`;
-    byId("sheetChip").textContent = placed.sheetMm
+    ui.scaleNote.textContent = `${sentence(placed.note)}. ${sentence(state.scan!.origin)}.`;
+    ui.sheetChip.textContent = placed.sheetMm
       ? `${placed.contentMm[0]} by ${placed.contentMm[1]} mm on ${placed.sheetMm[0]} by ${placed.sheetMm[1]}`
       : `${placed.contentMm[0]} by ${placed.contentMm[1]} mm`;
 
     let crop = cropCanvas(active.scan.image, active.box);
-    if (trim) {
-      crop = await trimToMask(
-        crop, active.box, trim.mask, trim.size, trim.box,
-      );
-    }
+    if (trim) crop = await trimToMask(crop, active.box, trim.mask, trim.size, trim.box);
     if (requested !== generation) return;
-    const previewDpi = 110;
-    const sheetWidth = Math.round((placed.pageMm[0] / 25.4) * previewDpi);
-    const sheetHeight = Math.round((placed.pageMm[1] / 25.4) * previewDpi);
-    const sheet = new OffscreenCanvas(sheetWidth, sheetHeight);
+    const px = (mm: number) => (mm / 25.4) * PREVIEW_DPI;
+    const sheet = new OffscreenCanvas(Math.round(px(placed.pageMm[0])), Math.round(px(placed.pageMm[1])));
     const context = sheet.getContext("2d")!;
     context.fillStyle = "#fff";
-    context.fillRect(0, 0, sheetWidth, sheetHeight);
-    const contentWidth = Math.round((placed.contentMm[0] / 25.4) * previewDpi);
-    const contentHeight = Math.round((placed.contentMm[1] / 25.4) * previewDpi);
-    context.drawImage(
-      crop,
-      placed.contentOriginMm[0] / 25.4 * previewDpi,
-      placed.contentOriginMm[1] / 25.4 * previewDpi,
-      contentWidth,
-      contentHeight,
-    );
-    showPreview(sheet, requested);
+    context.fillRect(0, 0, sheet.width, sheet.height);
+    context.imageSmoothingQuality = "high";
+    context.drawImage(crop,
+      px(placed.contentOriginMm[0]), px(placed.contentOriginMm[1]),
+      Math.round(px(placed.contentMm[0])), Math.round(px(placed.contentMm[1])));
+    await showPreview(sheet, requested);
   }
 
   async function refreshSheet(layout: Layout, requested: number) {
@@ -136,28 +123,33 @@ export function createOutputController(
     const count = `${items.length} item${items.length === 1 ? "" : "s"}`;
     const sizes = composed.itemsMm.map(size => `${size[0]} by ${size[1]}`);
     const same = sizes.every(size => size === sizes[0]);
-    byId("factScan").textContent = count;
-    byId("factOut").textContent = same
-      ? `${sizes[0]} mm each` : `${sizes.join(", ")} mm`;
-    byId("factSheet").textContent = composed.sheetMm
+    ui.factScan.textContent = count;
+    ui.factOut.textContent = same ? `${sizes[0]} mm each` : `${sizes.join(", ")} mm`;
+    ui.factSheet.textContent = composed.sheetMm
       ? `${composed.sheetMm[0]} by ${composed.sheetMm[1]} mm` : "no sheet";
-    const pages = composed.pages.length > 1 ? `, ${composed.pages.length} pages` : "";
-    byId("sheetChip").textContent = composed.sheetMm
+    const pages = composed.pages.length > 1
+      ? `, ${composed.pages.length} pages, first shown` : "";
+    ui.sheetChip.textContent = composed.sheetMm
       ? `${count} on ${composed.sheetMm[0]} by ${composed.sheetMm[1]}${pages}`
       : `${count}${pages}`;
-    byId("scaleNote").textContent = `${composed.note}. ${state.scan!.origin}.`;
-    showPreview(renderSheetPage(composed.pages[0]!, 110), requested);
+    ui.scaleNote.textContent = `${sentence(composed.note)}.${state.scan ? ` ${sentence(state.scan.origin)}.` : ""}`;
+    await showPreview(renderSheetPage(composed.pages[0]!, PREVIEW_DPI), requested);
   }
 
+  /** Recompose the preview; bursts of changes collapse into one pass. */
   function refresh() {
-    clearTimeout(timer);
+    window.clearTimeout(timer);
     const requested = ++generation;
-    timer = window.setTimeout(async () => {
+    timer = window.setTimeout(() => {
       if (!state.scan) return;
       refreshAddButton();
       const layout = getLayout();
-      if (state.tray.length) await refreshSheet(layout, requested);
-      else await refreshSingle(layout, requested);
+      const work = state.tray.length
+        ? refreshSheet(layout, requested) : refreshSingle(layout, requested);
+      work.catch((error: unknown) => {
+        if (requested !== generation) return;
+        ui.scaleNote.textContent = `Could not compose the page. ${(error as Error).message}`;
+      });
     }, 120);
   }
 
@@ -170,10 +162,18 @@ export function createOutputController(
     return item;
   }
 
-  async function download(): Promise<Blob> {
+  /** Write the PDF: the sheet when crops are pinned, one page per item in several-items
+   *  mode, or the single crop. */
+  async function download(): Promise<{ blob: Blob; filename: string }> {
     if (!state.scan) throw new Error("open a scan first");
+    const base = state.scan.name.replace(/, page \d+$/, "").replace(/\.[a-z0-9]+$/i, "")
+      .replace(/[^\p{L}\p{N}._-]+/gu, "-").replace(/^-+|-+$/g, "") || "cropsize";
     if (state.tray.length) {
-      return exportSheetPdf(composeSheet(await sheetItems(), getLayout()), getLayout());
+      const layout = getLayout();
+      return {
+        blob: await exportSheetPdf(composeSheet(await sheetItems(), layout), layout),
+        filename: `${base}-sheet.pdf`,
+      };
     }
     if (state.objects.length) {
       const pages: Blob[] = [];
@@ -181,11 +181,12 @@ export function createOutputController(
         const image = await extractObject(outputImage(), item);
         pages.push(await exportPdf({ ...state.scan, image }, fullBox(), getLayout()));
       }
-      return mergePdfPages(pages);
+      return { blob: await mergePdfPages(pages), filename: `${base}-items.pdf` };
     }
-    return exportPdf(
-      { ...state.scan, image: outputImage() }, state.box, getLayout(), getTrim(),
-    );
+    return {
+      blob: await exportPdf({ ...state.scan, image: outputImage() }, state.box, getLayout(), getTrim()),
+      filename: `${base}-cropsize.pdf`,
+    };
   }
 
   return { refresh, download, addLiveToSheet };

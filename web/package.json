@@ -14,7 +14,8 @@
     "build": "npm run build:core && tsc -b && vite build",
     "preview": "vite preview",
     "typecheck": "tsc -b --noEmit",
-    "deploy": "npm run build && wrangler pages deploy dist --project-name cropsize --branch main"
+    "deploy": "npm run build && wrangler pages deploy dist --project-name cropsize --branch main",
+    "e2e": "node e2e/smoke.mjs"
   },
   "dependencies": {
     "onnxruntime-web": "^1.27.0",

@@ -1,5 +1,6 @@
 /** Sheet composition and PDF writing; numeric imaging/layout decisions live in the core. */
 import { PDFDocument } from "pdf-lib";
+import { canvasOf } from "./canvas";
 import type { Box } from "./detect";
 import { measureBox, planLayout, trimImageToMask } from "./imaging-core";
 import type { Scan } from "./source";
@@ -16,6 +17,26 @@ export const PRESETS = {
   "id-card": { label: "ID or bank card", mm: [85.6, 54] },
 } as const;
 export type PresetName = keyof typeof PRESETS;
+
+/** A preset turned to match the crop: a card photographed upright is still a card. */
+export function orientedPresetMm(
+  name: PresetName, widthPx: number, heightPx: number,
+): [number, number] {
+  const [a, b] = PRESETS[name].mm;
+  return (widthPx >= heightPx) === (a >= b) ? [a, b] : [b, a];
+}
+
+/**
+ * When an image carries no scale, a crop with the proportions of an ID-1 card (IDs, bank
+ * cards, residence permits, driving licences) prints at that size rather than filling the
+ * sheet. Passports are left out on purpose: their pages are within a percent of A-series
+ * paper, so the guess would shrink every photographed letter to passport size.
+ */
+export function recognisedPreset(widthPx: number, heightPx: number): PresetName | null {
+  const ratio = Math.max(widthPx, heightPx) / Math.max(1, Math.min(widthPx, heightPx));
+  const [long, short] = PRESETS["id-card"].mm;
+  return Math.abs(ratio - long / short) / (long / short) <= 0.03 ? "id-card" : null;
+}
 export type Fit = "true" | "preset" | "fill";
 export type OutputDpi = "source" | 150 | 300 | 600;
 export type TrimMask = { mask: Float32Array; size: number; box: Box };
@@ -45,10 +66,8 @@ export function cropCanvas(img: ImageData, box: Box): OffscreenCanvas {
   const x1 = Math.min(img.width, Math.round(box.x1 * img.width));
   const y1 = Math.min(img.height, Math.round(box.y1 * img.height));
   const width = Math.max(1, x1 - x0), height = Math.max(1, y1 - y0);
-  const source = new OffscreenCanvas(img.width, img.height);
-  source.getContext("2d")!.putImageData(img, 0, 0);
   const output = new OffscreenCanvas(width, height);
-  output.getContext("2d")!.drawImage(source, x0, y0, width, height, 0, 0, width, height);
+  output.getContext("2d")!.drawImage(canvasOf(img), x0, y0, width, height, 0, 0, width, height);
   return output;
 }
 
@@ -66,29 +85,49 @@ export interface Placed {
   note: string;
 }
 
+function cropPixels(image: ImageData, box: Box): [number, number] {
+  return [
+    Math.max(1, (box.x1 - box.x0) * image.width),
+    Math.max(1, (box.y1 - box.y0) * image.height),
+  ];
+}
+
 export function plan(scan: Scan, box: Box, layout: Layout): Placed {
   const sheetMm: [number, number] | null = layout.sheet === "none"
     ? null
     : layout.landscape
       ? [SHEETS[layout.sheet][1], SHEETS[layout.sheet][0]]
       : [SHEETS[layout.sheet][0], SHEETS[layout.sheet][1]];
-  const preset = PRESETS[layout.preset];
-  const fit = layout.fit === "true" ? 0 : layout.fit === "preset" ? 1 : 2;
+  const [cropWidth, cropHeight] = cropPixels(scan.image, box);
+  let fit = layout.fit;
+  let preset = layout.preset;
+  const recognised = fit === "true" && !scan.mmPerPx ? recognisedPreset(cropWidth, cropHeight) : null;
+  if (recognised) {
+    fit = "preset";
+    preset = recognised;
+  }
   const result = planLayout({
     width: scan.image.width,
     height: scan.image.height,
     box,
     mmPerPx: scan.mmPerPx,
     sheetMm,
-    fit,
-    presetMm: [...preset.mm],
+    fit: fit === "true" ? 0 : fit === "preset" ? 1 : 2,
+    presetMm: orientedPresetMm(preset, cropWidth, cropHeight),
     marginMm: layout.marginMm,
   });
-  const note = result.noteCode === 0
-    ? "as measured on the scan"
-    : result.noteCode === 1
-      ? `forced to ${preset.label}`
-      : result.noteCode === 2 ? "filling the sheet, not to scale" : "no scale available";
+  const label = PRESETS[preset].label;
+  const note = recognised
+    ? `this image carries no scale, and it has the shape of an ${label.toLowerCase()}, so it prints at that size`
+    : result.noteCode === 0
+      ? "as measured on the scan"
+      : result.noteCode === 1
+        ? `forced to ${label}`
+        : result.noteCode === 2
+          ? layout.fit === "true"
+            ? "this image carries no scale, so it fills the sheet; choose Known size to set one"
+            : "filling the sheet, not to scale"
+          : "no scale available";
   const pageMm: [number, number] = sheetMm ?? [
     result.contentMm[0] + 2 * layout.marginMm,
     result.contentMm[1] + 2 * layout.marginMm,
@@ -204,31 +243,46 @@ const tenth = (value: number) => Math.round(value * 10) / 10;
 function naturalSizes(
   items: SheetItem[], layout: Layout,
 ): { sizes: [number, number][]; fill: boolean; note: string } {
-  const preset = PRESETS[layout.preset];
   if (layout.fit === "preset") {
+    const preset = PRESETS[layout.preset];
     return {
       note: `forced to ${preset.label}`,
       fill: false,
       sizes: items.map(({ image }) => {
+        const [presetWidth, presetHeight] = orientedPresetMm(layout.preset, image.width, image.height);
         const aspect = image.height / image.width;
-        let width = preset.mm[0], height = width * aspect;
-        if (height > preset.mm[1]) { height = preset.mm[1]; width = height / aspect; }
+        let width = presetWidth, height = width * aspect;
+        if (height > presetHeight) { height = presetHeight; width = height / aspect; }
         return [tenth(width), tenth(height)];
       }),
     };
   }
-  const measured = items.map(({ image, mmPerPx }) =>
-    measureBox(image.width, image.height, { x0: 0, y0: 0, x1: 1, y1: 1 }, mmPerPx));
-  if (layout.fit === "true" && measured.every(size => size !== null)) {
-    return { note: "as measured on the scan", fill: false, sizes: measured as [number, number][] };
+  if (layout.fit === "true") {
+    let recognised = false;
+    const sizes = items.map(({ image, mmPerPx }) => {
+      const measured = measureBox(image.width, image.height, { x0: 0, y0: 0, x1: 1, y1: 1 }, mmPerPx);
+      if (measured) return measured;
+      const preset = recognisedPreset(image.width, image.height);
+      if (!preset) return null;
+      recognised = true;
+      return orientedPresetMm(preset, image.width, image.height);
+    });
+    if (sizes.every(size => size !== null)) {
+      return {
+        note: recognised
+          ? "as measured, and images without a scale that have the shape of an ID card print at that size"
+          : "as measured on the scan",
+        fill: false,
+        sizes: sizes as [number, number][],
+      };
+    }
   }
   // Fill, or real size asked for without a scale to honour: pixels become relative units and
   // the group is scaled to the sheet as one block, so the items keep their relative sizes.
-  const note = layout.fit === "true"
-    ? "no scale available, so filling the sheet"
-    : "filling the sheet, not to scale";
   return {
-    note,
+    note: layout.fit === "true"
+      ? "no scale available, so filling the sheet"
+      : "filling the sheet, not to scale",
     fill: true,
     sizes: items.map(({ image }) => [image.width, image.height]),
   };
@@ -379,12 +433,6 @@ export function composeSheet(items: SheetItem[], layout: Layout): ComposedSheet 
     pages, sheetMm, itemsMm: sizes,
     note: `${note}, ${pages.length} pages because they do not all fit on one`,
   };
-}
-
-function canvasOf(image: ImageData): OffscreenCanvas {
-  const canvas = new OffscreenCanvas(image.width, image.height);
-  canvas.getContext("2d")!.putImageData(image, 0, 0);
-  return canvas;
 }
 
 /** Rasterise one composed page, used for the preview. */

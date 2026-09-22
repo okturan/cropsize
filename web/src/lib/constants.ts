@@ -57,7 +57,8 @@ export function modelBase(quality: Quality): string {
   // 78 MB does not settle.
   if (typeof location !== "undefined"
       && new URLSearchParams(location.search).get("models") === "local") {
-    return new URL("models/", location.href).toString();
+    // One folder per size: both sizes use the same file names.
+    return new URL(`models/${quality}/`, location.href).toString();
   }
   const { repo, revision } = MODELS[quality];
   return `https://huggingface.co/${repo}/resolve/${revision}/onnx/`;

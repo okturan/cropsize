@@ -3,7 +3,7 @@ import {
   mergeRotatedRectangles,
 } from "./imaging-core";
 import { Sam } from "./sam";
-import type { LoadProgress } from "./model-loader";
+import { silent, type Report } from "./progress";
 
 export interface ObjectCandidate {
   id: number;
@@ -112,30 +112,18 @@ export function groupCandidates(candidates: ObjectCandidate[]): ObjectCandidate[
 export async function findObjectGroups(
   sam: Sam,
   image: ImageData,
-  onProgress: (progress: LoadProgress) => void,
+  report: Report = silent,
   grid = 8,
   minimumScore = 0.8,
   maximumObjects = 16,
 ): Promise<ObjectCandidate[][]> {
-  await sam.ready(onProgress);
-  onProgress({
-    fraction: 0,
-    loadedBytes: 0,
-    totalBytes: 0,
-    status: "encoding the scan once for several-item detection",
-  });
-  const embeddings = await sam.encode(image);
+  await sam.ready(report);
+  const embeddings = await sam.encode(image, report);
   const candidates: ObjectCandidate[] = [];
   const total = grid * grid;
+  report({ phase: "decode", done: 0, total });
   for (let y = 0; y < grid; y++) {
     for (let x = 0; x < grid; x++) {
-      const index = y * grid + x;
-      onProgress({
-        fraction: index / total,
-        loadedBytes: 0,
-        totalBytes: 0,
-        status: `checking item prompts, ${index + 1} of ${total}`,
-      });
       const proposals = await sam.decodeAll(embeddings, {
         points: [[(x + 0.5) / grid * image.width, (y + 0.5) / grid * image.height, 1]],
       });
@@ -146,10 +134,12 @@ export async function findObjectGroups(
         );
         if (candidate) candidates.push(candidate);
       }
+      report({ phase: "decode", done: y * grid + x + 1, total });
     }
   }
   const groups = groupCandidates(candidates).slice(0, maximumObjects);
-  for (const group of groups) {
+  report({ phase: "refine", done: 0, total: groups.length });
+  for (const [index, group] of groups.entries()) {
     const primary = group[0]!;
     const refined = await refineObject(image, primary);
     const choices = [bareCandidate(refined), ...group.slice(1).map(bareCandidate)];
@@ -157,6 +147,7 @@ export async function findObjectGroups(
     refined.choiceIndex = 0;
     refined.alternatives = choices.slice(1);
     group[0] = refined;
+    report({ phase: "refine", done: index + 1, total: groups.length });
   }
   return groups;
 }

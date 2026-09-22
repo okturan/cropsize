@@ -5,13 +5,16 @@ import type { DocumentSource, Scan } from "./lib/source";
 
 export type MaskState = { mask: Float32Array; size: number; box: Box };
 
+/** The status line: short text for people, optional detail in its tooltip, errors marked. */
+export type Note = { text: string; detail?: string; warn?: boolean };
+
 export type PageState = {
   scan: Omit<Scan, "image">;
   original: ImageData;
   skew: number;
   mask: MaskState | null;
   box: Box;
-  note: string;
+  note: Note;
   objects: ObjectCandidate[];
   selectedObjectId: number | null;
 };

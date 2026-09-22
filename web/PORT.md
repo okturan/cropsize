@@ -41,7 +41,15 @@ does not fix that latency.
 - Real-size, known-size and fill-sheet output on A3, A4, A5, Letter, Legal or no sheet.
 - Source-pixel export by default, plus explicit 150, 300 and 600 dpi output.
 - Optional CLAHE and white-point controls.
-- Base-plus and tiny model choices with verified local caching.
+- Base-plus and tiny model choices with verified local caching in the Cache API. The choice is
+  remembered between visits.
+- A stepped loading panel: download bytes, speed and time left; model start and encoder
+  filling against this device's own previous timings; counted detection passes. It appears
+  only when work takes longer than a quarter second.
+- Model work runs one job at a time, and an encoding is reused for as long as the image on
+  screen is unchanged, so detecting again or finding several items skips the encoder.
+- Phone photos of ID-1 cards print at 85.6 by 54 mm under Real size; Known size turns its
+  preset to match an upright crop.
 
 ## Implementation map
 
@@ -50,10 +58,11 @@ does not fix that latency.
 | Source | `pdfjs-dist`, rendered page by page with PDF geometry preserved. |
 | Segmentation | SAM 2.1 through `onnxruntime-web`; one encode, then box, point or grid prompts. |
 | Imaging maths | `core/crates/imaging-core`, compiled with `wasm-pack`. |
-| Browser orchestration | TypeScript modules for state, view, controls, model work and output. |
+| Browser orchestration | `main.ts` wires `model.ts` (model choice and job queue), `workspace.ts` (document, pages, detection, items, sheet tray) and `ui/` (loading panel, scan pane, output, settings, lists). |
+| Model cache | Cache API, one entry per artifact, keyed by pinned revision. IndexedDB caps a value at 127 MB in Chrome, below the 153 MB encoder weights. |
 | PDF output | `pdf-lib`; source pixels by default, optional explicit resampling. |
 | Sheet packing | TypeScript in `sheet.ts`: column, row or shelf layout of several items on one page. |
-| Tests | Native Rust tests plus Vitest Browser Mode in headless Chrome. |
+| Tests | Native Rust tests, Vitest Browser Mode in headless Chrome, and a Playwright end-to-end run of the real UI. |
 
 The core owns skew, edge snapping, mask cleanup, convex hulls, trimming, rotated extraction,
 page layout arithmetic, tone work and the computer-vision primitives used by objects mode.
@@ -79,6 +88,20 @@ CROPSIZE_RUN_BROWSER_MODEL_FIXTURES=1 npm test
 The ordinary suite builds the WASM core and runs module tests in Chrome. The opt-in suite
 loads the real base-plus model and checks the public flatbed plus any private fixtures present
 on the machine.
+
+```bash
+npm run e2e                                   # a local dev server
+npm run e2e -- --url https://cropsize.pages.dev   # the deployed site
+npm run e2e -- --shots /tmp/cropsize-shots    # with a screenshot per stage
+```
+
+The end-to-end run drives the whole UI in Chrome: detection on a throttled first download
+with every loading-panel state recorded, measurement, turns, dragging a corner, detecting
+again, several items with merge, undo and remove, every print mode, the PDFs themselves, two
+files on one sheet, a two-page PDF, the straighten and contrast controls, and switching
+models. It also fails on any page error, console error or failed request. Weights are served
+from `web/public/models/<size>/` when that ignored folder exists, which keeps it offline and
+fast; otherwise they come from Hugging Face.
 
 ## Run and deploy
 

@@ -3,7 +3,7 @@
 Crop a scan, straighten it, and print it at its real physical size.
 
 Live: **[cropsize.pages.dev](https://cropsize.pages.dev)** runs in your browser, no install,
-no upload. The default base-plus model downloads once, about 163 MB, and is cached after
+no upload. The default base-plus model downloads once, about 164 MB, and is cached after
 that. A 78 MB tiny model is available from the toolbar.
 
 ![The cropsize editor](docs/editor.png)
@@ -90,6 +90,11 @@ sheet**. Then open the other side; its crop appears under the pinned one in the 
 the PDF carries both at their sizes. Pin that one too if a third is coming. Each pinned item
 is listed above the panes with its measurement and can be taken off again.
 
+A photo from a phone carries no scale, so **Real size** cannot measure it. When the crop has
+the proportions of an ID-1 card, which covers ID cards, residence permits, bank cards and
+driving licences, it prints at 85.6 by 54 mm and the note under the settings says so.
+Anything else fills the sheet until you pick **Known size**.
+
 Then choose how big it should print. **Keep real size** uses the measurement it took off the
 scan. **Scale to a known size** forces an exact width, with presets for a passport spread, a
 passport page and an ID card. **Fill the sheet** is the one that is not to scale, and it says
@@ -123,7 +128,7 @@ which is 125 by 176 millimetres by international standard.
 Only on the awkward scans. Both sizes measured on the same straightened input, against a
 true 125 by 176 mm spread and a 105 by 148 mm sample:
 
-| Scan | tiny, 78 MB | base plus, 163 MB |
+| Scan | tiny, 78 MB | base plus, 164 MB |
 | --- | --- | --- |
 | Sample document | 104.9 by 147.9 mm | 104.9 by 147.9 mm |
 | Passport on white | 126.1 by 177.5 mm | 126.1 by 176.7 mm |
@@ -151,7 +156,10 @@ The first browser run is not quick. In the recorded production run, the cached b
 model still took 16.255 seconds to encode the sample. The page starts pulling the four
 weight files in the background the moment it opens, so by the time you have picked a scan
 the download is usually already done; the session itself is built off the main thread, so
-the tab stays responsive while it compiles. The Rust imaging core fixes parity and keeps
+the tab stays responsive while it compiles. A loading panel shows each step as it happens:
+the download with its speed and time left, starting the model, reading the scan, and the
+counted detection passes. The two steps the runtime cannot measure fill against how long
+they took last time on the same device, and say so. The Rust imaging core fixes parity and keeps
 the geometry in one tested implementation; it does not make ONNX inference fast.
 
 Browser tabs do not share scans. The local Python server serializes access to its one cached
