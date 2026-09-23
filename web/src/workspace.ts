@@ -5,7 +5,7 @@
  */
 import { ui } from "./dom";
 import { turnBox, turnMask } from "./geometry";
-import { fitCard, turnCard, type CardFit } from "./lib/card";
+import { fitFor, turnFit, type Fit } from "./lib/fit";
 import { detect, type DetectResult } from "./lib/detect";
 import { applyTone, estimateSkew } from "./lib/imaging-core";
 import {
@@ -66,7 +66,7 @@ export function createWorkspace(deps: Deps) {
       skew: S.skew,
       mask: S.mask ? { ...S.mask, box: { ...S.mask.box } } : null,
       box: { ...S.box },
-      card: S.card,
+      fit: S.fit,
       note,
       objects: S.objects,
       selectedObjectId: S.selectedObjectId,
@@ -91,7 +91,7 @@ export function createWorkspace(deps: Deps) {
     S.scan = { ...saved.scan, image: rotate(saved.original, saved.skew) };
     S.mask = saved.mask ? { ...saved.mask, box: { ...saved.mask.box } } : null;
     S.box = { ...saved.box };
-    S.card = saved.card;
+    S.fit = saved.fit;
     S.objects = saved.objects;
     S.selectedObjectId = saved.selectedObjectId;
     S.drag = null;
@@ -127,6 +127,7 @@ export function createWorkspace(deps: Deps) {
       ...model.loadingSteps(),
       { id: "encode", label: "Analyse the scan" },
       { id: "decode", label: "Find the document" },
+      { id: "refine", label: "Measure the edges" },
     ], model.quality, { delayMs: 0 });
     try {
       run.start("read");
@@ -141,7 +142,7 @@ export function createWorkspace(deps: Deps) {
       S.objects = [];
       S.selectedObjectId = null;
       S.box = defaultBox();
-      S.card = null;
+      S.fit = null;
       S.drag = null;
       merging.clear();
       ui.fileName.textContent = scan.name;
@@ -169,21 +170,27 @@ export function createWorkspace(deps: Deps) {
   }
 
   /* -------------------------------------------------------------------- detection */
-  function describe(result: DetectResult, card: CardFit | null): Note {
+  function describe(result: DetectResult, fit: Fit | null): Note {
     const straightened = Math.abs(S.skew) >= 0.05
       ? ` Straightened by ${Math.abs(S.skew).toFixed(1)}°.` : "";
-    if (card) {
+    if (fit?.card) {
       return {
         text: `Found the card and squared it up.${straightened}`,
         detail: "Its four edges were measured at full resolution, so glare and shadow stay out, "
           + "and each corner is rounded as the card is. Drag the box to crop by hand instead.",
       };
     }
+    if (result.whole) {
+      return {
+        text: `The document fills the photo, so all of it is kept.${straightened}`,
+        detail: "No edge of a separate document was found inside the photo. Drag the box to crop by hand.",
+      };
+    }
+    const measured = result.kinds.filter(k => k === "edge" || k === "outer-edge").length;
     return {
-      text: `${result.method === "vote" ? "Found the document in the photo." : "Found the document."}${straightened}`,
-      detail: result.method === "vote"
-        ? `The first answer was the whole frame, so several prompts voted. Model confidence ${result.score.toFixed(2)}.`
-        : `Model confidence ${result.score.toFixed(2)}.`,
+      text: `${fit ? "Found the document and squared it up." : "Found the document."}${straightened}`,
+      detail: `${measured} of its 4 edges were measured at full resolution; `
+        + "the rest follow the model's outline or the photo's border. Drag the box to crop by hand instead.",
     };
   }
 
@@ -194,11 +201,13 @@ export function createWorkspace(deps: Deps) {
       ...model.loadingSteps(),
       { id: "encode", label: "Analyse the scan" },
       { id: "decode", label: "Find the document" },
+      { id: "refine", label: "Measure the edges" },
     ], model.quality);
     const image = S.scan.image;
     let result: DetectResult;
     try {
-      result = await model.exclusive(sam => detect(sam, image, run.report));
+      const turn = S.skew;
+      result = await model.exclusive(sam => detect(sam, image, turn, run.report));
     } catch (error) {
       if (!model.sam.loaded) {
         run.fail(`The model could not start. ${message(error)} Check the connection, then press Detect again.`);
@@ -213,18 +222,15 @@ export function createWorkspace(deps: Deps) {
       update();
       return;
     }
-    // A card photographed with a phone: measure its edges at full resolution. No model
-    // work, so it runs outside the queue; a failed fit leaves the box, as before.
-    const skew = S.skew;
-    const card = await fitCard(image, result.box, skew).catch(() => null);
     run.close();
     // The scan changed while this ran (a turn, a new tilt): this answer is for an image that
     // is no longer on screen.
     if (S.scan?.image !== image) return;
+    const fit = fitFor(result, image, S.scan.focal ?? null);
     S.box = { ...result.box };
-    S.mask = { mask: result.mask, size: result.maskSize, box: { ...result.box } };
-    S.card = card;
-    setNote(describe(result, card));
+    S.mask = result.whole ? null : { mask: result.mask, size: result.maskSize, box: { ...result.box } };
+    S.fit = fit;
+    setNote(describe(result, fit));
     update();
   }
 
@@ -340,7 +346,7 @@ export function createWorkspace(deps: Deps) {
     S.original = quarterTurns(S.original, k);
     S.scan = { ...S.scan, image: rotate(S.original, S.skew) };
     S.box = turnBox(S.box, k);
-    if (S.card) S.card = turnCard(S.card, k);
+    if (S.fit) S.fit = turnFit(S.fit, k);
     if (S.mask) {
       S.mask = { mask: turnMask(S.mask.mask, S.mask.size, k), size: S.mask.size, box: turnBox(S.mask.box, k) };
     }
@@ -355,7 +361,7 @@ export function createWorkspace(deps: Deps) {
     showSkew();
     S.scan = { ...S.scan, image: rotate(S.original, degrees) };
     S.mask = null;
-    S.card = null;
+    S.fit = null;
     S.objects = [];
     S.selectedObjectId = null;
     merging.clear();
@@ -447,11 +453,11 @@ export function createWorkspace(deps: Deps) {
     deps.refresh();
   }
 
-  /** The crop box was moved by hand: that replaces the fitted card edges. */
+  /** The crop box was moved by hand: that replaces the measured edges. */
   function cropEdited() {
-    if (S.card) {
-      S.card = null;
-      setNote({ text: "Cropping to your box. Press Detect again to fit the card's edges." });
+    if (S.fit) {
+      S.fit = null;
+      setNote({ text: "Cropping to your box. Press Detect again to measure the edges." });
       deps.draw();
     }
     deps.refresh();

@@ -34,8 +34,9 @@ for (const photo of photos) {
     if (!response.headers.get("content-type")?.startsWith("image/")) return;   // not on this machine
     const source = await loadRaster(await response.blob(), photo.file);
     const scan = await source.loadPage(0);
-    const straight = rotate(scan.image, await estimateSkew(scan.image));
-    const found = await detect(sam, straight, () => {});
+    const skew = await estimateSkew(scan.image);
+    const straight = rotate(scan.image, skew);
+    const found = await detect(sam, straight, skew, () => {});
     const actual = [found.box.x0, found.box.y0, found.box.x1, found.box.y1];
     for (let i = 0; i < 4; i++) expect(Math.abs(actual[i]! - photo.box[i]!)).toBeLessThan(0.03);
     // a card is wider than tall, about 1.585 to 1

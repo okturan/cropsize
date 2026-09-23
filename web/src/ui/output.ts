@@ -3,7 +3,7 @@
  * composed by the same layout code that writes the file, so it cannot drift from it.
  */
 import { ui } from "../dom";
-import { extractCard, type CardFit } from "../lib/card";
+import { extractFit, type Fit } from "../lib/fit";
 import type { Box } from "../lib/detect";
 import { extractObject } from "../lib/objects";
 import {
@@ -32,22 +32,22 @@ export function createOutputController(
   const selectedObject = () =>
     state.objects.find(item => item.id === state.selectedObjectId) ?? null;
 
-  // The squared-up card for the current image and fit, made once: settings changes recompose
-  // the page many times and the warp is the slow part.
-  let cardMemo: { image: ImageData; card: CardFit; result: Promise<ImageData> } | null = null;
-  function squaredCard(image: ImageData, card: CardFit): Promise<ImageData> {
-    if (cardMemo?.image !== image || cardMemo.card !== card) {
-      cardMemo = { image, card, result: extractCard(image, card).then(out => out.image) };
+  // The squared-up document for the current image and fit, made once: settings changes
+  // recompose the page many times and the warp is the slow part.
+  let fitMemo: { image: ImageData; fit: Fit; result: Promise<ImageData> } | null = null;
+  function squared(image: ImageData, fit: Fit): Promise<ImageData> {
+    if (fitMemo?.image !== image || fitMemo.fit !== fit) {
+      fitMemo = { image, fit, result: extractFit(image, fit).then(out => out.image) };
     }
-    return cardMemo.result;
+    return fitMemo.result;
   }
 
   async function activeOutput(): Promise<{ scan: Scan; box: Box }> {
     const item = selectedObject();
-    if (!item && state.card) {
-      const image = await squaredCard(outputImage(), state.card);
+    if (!item && state.fit) {
+      const image = await squared(outputImage(), state.fit);
       return {
-        scan: { ...state.scan!, image, origin: `${state.scan!.origin}; card edges fitted and squared up` },
+        scan: { ...state.scan!, image, origin: `${state.scan!.origin}; edges measured and squared up` },
         box: fullBox(),
       };
     }

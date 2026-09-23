@@ -11,29 +11,37 @@ deployment. Their canonical files stay wherever their owner keeps them. On this 
 ignored local paths are symlinks:
 
 ```text
-fixtures/private/ilkyaz.pdf -> <iCloud>/LongTermStorage/People/İlkyaz/Documents/IDs-and-Passports/İlkyaz-Pasaport-COL-<redacted>-issued2021-expires2031-scan.pdf
-fixtures/private/irene.pdf  -> <iCloud>/LongTermStorage/People/Irene/Documents/IDs-and-Passports/Irene-Pasaport-COL-<redacted>-issued2021-expires2031-scan.pdf
+fixtures/private/ilkyaz.pdf -> <archive>/İlkyaz/Documents/IDs-and-Passports/<passport scan>.pdf
+fixtures/private/irene.pdf  -> <archive>/Irene/Documents/IDs-and-Passports/<passport scan>.pdf
 ```
 
-where `<iCloud>` is `~/Library/Mobile Documents/com~apple~CloudDocs`.
+where `<archive>` is the owner's document archive. The real file names carry document
+numbers, which do not belong in a public repository; `ls -l fixtures/private` shows them.
 
 Two further ignored links hold phone photos of an ID card lying on a plain surface, front
 and back. They are not in the manifest; `web/tests/detect-photo.test.ts` uses them to make
 sure the card is found rather than the surface, and passes trivially where they are absent:
 
 ```text
-fixtures/private/okan-id-front.jpg     -> <iCloud>/LongTermStorage/People/Okan/Documents/IDs-and-Passports/Okan-TCKimlik-<redacted>-valid2026-2036-photo-front.jpg
-fixtures/private/okan-id-back.jpg      -> <iCloud>/LongTermStorage/People/Okan/Documents/IDs-and-Passports/Okan-TCKimlik-<redacted>-valid2026-2036-photo-back.jpg
-fixtures/private/irene-ikamet-front.jpg -> <iCloud>/LongTermStorage/People/Irene/Documents/IDs-and-Passports/Irene-Ikamet-<redacted>-valid2025-2027-photo-front.jpg
-fixtures/private/irene-ikamet-back.jpg  -> <iCloud>/LongTermStorage/People/Irene/Documents/IDs-and-Passports/Irene-Ikamet-<redacted>-valid2025-2027-photo-back.jpg
-fixtures/private/ilkyaz-id-front.jpg    -> <iCloud>/LongTermStorage/People/İlkyaz/Documents/IDs-and-Passports/İlkyaz-TCKimlik-<redacted>-valid2020-2030-photo-front.jpg
-fixtures/private/ilkyaz-id-back.jpg     -> <iCloud>/LongTermStorage/People/İlkyaz/Documents/IDs-and-Passports/İlkyaz-TCKimlik-<redacted>-valid2020-2030-photo-back.jpg
+fixtures/private/okan-id-front.jpg     -> <archive>/Okan/Documents/IDs-and-Passports/<ID card photo, front>.jpg
+fixtures/private/okan-id-back.jpg      -> <archive>/Okan/Documents/IDs-and-Passports/<ID card photo, back>.jpg
+fixtures/private/irene-ikamet-front.jpg -> <archive>/Irene/Documents/IDs-and-Passports/<residence permit photo, front>.jpg
+fixtures/private/irene-ikamet-back.jpg  -> <archive>/Irene/Documents/IDs-and-Passports/<residence permit photo, back>.jpg
+fixtures/private/ilkyaz-id-front.jpg    -> <archive>/İlkyaz/Documents/IDs-and-Passports/<ID card photo, front>.jpg
+fixtures/private/ilkyaz-id-back.jpg     -> <archive>/İlkyaz/Documents/IDs-and-Passports/<ID card photo, back>.jpg
 ```
 
 The first pair is a card lying on a plain surface; the other two are photos taken tight on a
 card, where the frame itself is the document. `web/tests/card-photo.test.ts` pins the fitted
 card corners on all six to within 3 pixels; those corners were checked by eye on magnified
 overlays, on the card face and outside the glare and the shadow on every side.
+
+A further ignored folder, `fixtures/private/docs`, links 27 more documents from the same
+archive: phone photos of printed sheets on a desk (`bg-sheet-*`), a drawing, a staff ID card
+front and back, a diploma and a driving licence, and flatbed PDFs (`scan-*`) of certificates,
+civil registers, a consent form, a contract, a deed, a family booklet and passports. The
+document fitter's rules were tuned on these by eye, and `web/tests/document-photo.test.ts`
+pins what detection keeps of each: how every side was found and where the corners fall.
 
 If a link's target moves, the private rows skip silently; check with `ls -L`.
 

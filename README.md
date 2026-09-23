@@ -95,14 +95,23 @@ the proportions of an ID-1 card, which covers ID cards, residence permits, bank 
 driving licences, it prints at 85.6 by 54 mm and the note under the settings says so.
 Anything else fills the sheet until you pick **Known size**.
 
-Phone photos of ID-1 cards get one more step. The model only says roughly where the card is:
-its answer is 256 by 256 whatever the photo size, and it cannot tell the card's edge from
-the glare on it or the shadow under it. So cropsize measures each of the four edges itself,
-at full resolution, in a narrow band around the model's answer. It keeps the line along
-which the colour changes sharply and consistently, which is the card's edge rather than a
-soft shadow, a glare halo or a printed line. It then squares the card up, which also removes
-the phone's tilt, and rounds each corner to the radius measured on the card. The scan pane
-outlines the fitted card; drag the box to crop by hand instead.
+Every document then gets one more step. The model only says roughly where it is: its answer
+is 256 by 256 whatever the photo size, and it cannot tell a document's edge from the glare on
+it, the shadow under it or a line printed near it. So cropsize measures each of the four
+edges itself, at full resolution, in a band around the model's outline. It keeps the line
+along which the colour changes sharply all the way along, which is the paper's edge rather
+than a soft shadow, a glare halo, a crease or the edge of a block of print. A photo taken at
+an angle is searched along each side's own tilt. A side with no such line keeps the model's
+outline, or the photo's own border where the document runs off it, and a form that fills the
+photo is kept whole.
+
+The document is then squared up. Its proportions come from the perspective itself, by Zhang
+and He's method for a photographed rectangle, with the lens the photo recorded in its EXIF
+when there is one, so a page photographed at an angle comes out its own shape rather than
+squashed. An ID-1 card with all four edges measured comes out at exactly 85.6 by 54 mm, each
+corner rounded to the radius measured on it. A flatbed scan that is already square is
+cropped without resampling. The scan pane outlines the fitted document and the note says how
+many of its edges were measured; drag the box to crop by hand instead.
 
 Then choose how big it should print. **Keep real size** uses the measurement it took off the
 scan. **Scale to a known size** forces an exact width, with presets for a passport spread, a
@@ -132,6 +141,17 @@ which is 125 by 176 millimetres by international standard.
 | ID card on a flatbed | 85.6 by 53.9 mm | 0.0 and 0.1 mm |
 | Sample document | 104.9 by 147.9 mm | 0.1 and 0.1 mm |
 
+### Photographed at an angle
+
+Seven documents whose edges had been checked by eye, four ID cards, a passport spread in its
+sleeve, a diploma and the sample, were rendered again as if photographed from a camera tipped
+or turned 20 to 30 degrees off square: through a phone's main camera that records no lens in
+its EXIF, and through a 2x telephoto that does. On all 42 photos every edge was measured. The
+corners landed a median of 1.4 pixels from the truth, and the squared-up proportions came out
+within 2% of the document's own, a median of 0.03%; the worst is the diploma, whose printed
+border was rendered straight against the desk. All 24 card photos were recognised as ID-1
+cards, and nothing else was taken for one.
+
 ### Does the model size matter
 
 Only on the awkward scans. Both sizes measured on the same straightened input, against a
@@ -158,9 +178,12 @@ Skew is measured two independent ways and they agree to a quarter of a degree.
 
 ## What it will not do
 
-It corrects perspective only for ID-1 cards, whose shape is known. Any other document is
-straightened for rotation and cut as an upright box, so a letter photographed at an angle
-will not be squared up.
+It squares up flat documents. A page bent over a book's spine, or curled, is cut along
+straight lines through its corners. A photo that does not record its lens, which includes
+most photos sent through messaging apps, is taken to come from a phone's main camera; a page
+tipped steeply in front of a telephoto lens then comes out slightly stretched. An edge with
+no contrast at all, white paper on a white desk with no shadow, keeps the model's rougher
+outline.
 
 The first browser run is not quick. In the recorded production run, the cached base-plus
 model still took 16.255 seconds to encode the sample. The page starts pulling the four

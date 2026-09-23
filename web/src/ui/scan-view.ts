@@ -56,7 +56,8 @@ export function createScanView(state: AppState, onCropCommit: () => void) {
     context.drawImage(canvasOf(image), 0, 0, canvas.width, canvas.height);
     // The crop, readable from outside: the end-to-end test drags its corners.
     canvas.dataset.box = JSON.stringify(state.box);
-    canvas.dataset.card = state.card ? "fitted" : "";
+    canvas.dataset.card = state.fit?.card ? "fitted" : "";
+    canvas.dataset.fit = state.fit ? "fitted" : "";
     const colour = accent();
 
     if (state.objects.length) {
@@ -89,9 +90,9 @@ export function createScanView(state: AppState, onCropCommit: () => void) {
     context.fillStyle = "rgba(10,12,16,.45)";
     context.beginPath();
     context.rect(0, 0, canvas.width, canvas.height);
-    if (state.card) {
-      // The fitted card: darken everything outside its four measured edges.
-      const q = state.card.quad;
+    if (state.fit) {
+      // The fitted document: darken everything outside its four measured edges.
+      const q = state.fit.quad;
       context.moveTo(q[0]! * canvas.width, q[1]! * canvas.height);
       for (let i = 1; i < 4; i++) context.lineTo(q[2 * i]! * canvas.width, q[2 * i + 1]! * canvas.height);
       context.closePath();
@@ -101,8 +102,8 @@ export function createScanView(state: AppState, onCropCommit: () => void) {
     context.fill("evenodd");
     context.strokeStyle = colour;
     context.lineWidth = 2 * dpr;
-    if (state.card) {
-      const q = state.card.quad;
+    if (state.fit) {
+      const q = state.fit.quad;
       context.beginPath();
       context.moveTo(q[0]! * canvas.width, q[1]! * canvas.height);
       for (let i = 1; i < 4; i++) context.lineTo(q[2 * i]! * canvas.width, q[2 * i + 1]! * canvas.height);

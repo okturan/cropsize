@@ -1,4 +1,5 @@
 import init, {
+  PrintMap,
   RgbaFrame,
   clean_mask,
   measure_box,
@@ -200,47 +201,70 @@ export async function mergeRotatedRectangles(
 
 export type { RgbaFrame };
 
-/** A card's four fitted edges: corners top-left, top-right, bottom-right, bottom-left. */
-export interface CardEdges {
-  quad: [number, number, number, number, number, number, number, number];
-  /** per side, top, right, bottom, left: scatter of the edge points about the line, pixels */
-  scatter: [number, number, number, number];
-  /** per side: the fraction of measured points that agreed with the fitted line */
-  agreement: [number, number, number, number];
-}
-
-/** Fit a card's edges inside a rough box in pixels, in a frame straightened by `turn`. */
-export async function fitCardEdges(
-  image: ImageData, box: [number, number, number, number], turn: number,
-): Promise<CardEdges | null> {
+/** Square up a quadrilateral into a width by height image. A radius above 0 also rounds the
+ *  corners, starting from `radius` pixels, each corner measured on its own. */
+export async function squareUp(
+  image: ImageData, quad: readonly number[], width: number, height: number, radius: number,
+): Promise<{ image: ImageData; radii: number[] }> {
   const frame = await frameInCore(image);
+  let flat: RgbaFrame | undefined;
   try {
-    const out = frame.fit_card(box[0], box[1], box[2], box[3], turn);
-    if (out.length !== 16) return null;
-    const v = Array.from(out);
-    return {
-      quad: v.slice(0, 8) as CardEdges["quad"],
-      scatter: v.slice(8, 12) as CardEdges["scatter"],
-      agreement: v.slice(12, 16) as CardEdges["agreement"],
-    };
+    flat = frame.warp_quad(Float64Array.from(quad), width, height);
+    const radii = radius > 0 ? Array.from(flat.round_card_corners(radius)) : [];
+    return { image: imageFromFrame(flat, width, height), radii };
   } finally {
+    flat?.free();
     frame.free();
   }
 }
 
-/** Square up a quadrilateral into a width by height image, then round its corners starting
- *  from `radius` pixels, each corner measured on its own. */
-export async function squareUpCard(
-  image: ImageData, quad: readonly number[], width: number, height: number, radius: number,
-): Promise<{ image: ImageData; radii: number[] }> {
-  const frame = await frameInCore(image);
-  let card: RgbaFrame | undefined;
-  try {
-    card = frame.warp_quad(Float64Array.from(quad), width, height);
-    const radii = radius > 0 ? Array.from(card.round_card_corners(radius)) : [];
-    return { image: imageFromFrame(card, width, height), radii };
-  } finally {
-    card?.free();
-    frame.free();
+/** Where a photo has print: 0 plain, 1 print, 2 not part of the photo (straightening fill). */
+export interface PrintMapData {
+  width: number;
+  height: number;
+  /** map pixels per photo pixel */
+  scale: number;
+  data: Uint8Array;
+}
+
+/** How a fitted side was found. */
+export type SideKind = "border" | "model" | "edge" | "outer-edge";
+const SIDE_KINDS: SideKind[] = ["border", "model", "edge", "outer-edge"];
+
+/**
+ * A photo held in the core for document fitting: its print map is computed once, for the
+ * detection decision in TypeScript, then the fit runs on the same copy. Call free() after.
+ */
+export class DocumentFrame {
+  private constructor(
+    private readonly frame: RgbaFrame,
+    private readonly handle: PrintMap,
+    readonly map: PrintMapData,
+    private readonly turn: number,
+  ) {}
+
+  static async open(image: ImageData, turn: number): Promise<DocumentFrame> {
+    const frame = await frameInCore(image);
+    const handle = frame.print_map(turn);
+    return new DocumentFrame(frame, handle, {
+      width: handle.width, height: handle.height, scale: handle.scale, data: handle.data,
+    }, turn);
+  }
+
+  /** Fit the four sides around the model's outline, a quadrilateral in pixels: corners
+   *  top-left, top-right, bottom-right, bottom-left, and how each side (top, right, bottom,
+   *  left) was found. */
+  fit(outline: number[]): { quad: number[]; kinds: SideKind[]; scatter: number[] } {
+    const out = Array.from(this.frame.fit_document(this.turn, Float64Array.from(outline), this.handle));
+    return {
+      quad: out.slice(0, 8),
+      kinds: out.slice(8, 12).map(k => SIDE_KINDS[k] ?? "model"),
+      scatter: out.slice(12, 16),
+    };
+  }
+
+  free(): void {
+    this.handle.free();
+    this.frame.free();
   }
 }

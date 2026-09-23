@@ -3,6 +3,7 @@
 use wasm_bindgen::prelude::*;
 
 mod card;
+mod document;
 
 const LIMIT_TENTHS: i32 = 50;
 const WORK_WIDTH: usize = 800;
@@ -136,18 +137,18 @@ impl RgbaFrame {
         )
     }
 
-    /// Fit a card's four edges inside a rough box, in pixels, in a frame straightened by
-    /// `turn` degrees. Returns eight corner coordinates, four edge scatters and four agreement
-    /// fractions, or nothing. See card.rs.
-    pub fn fit_card(&self, x0: f64, y0: f64, x1: f64, y1: f64, turn: f64) -> Vec<f64> {
-        self.fit_card_impl([x0, y0, x1, y1], turn)
-    }
-
     /// Square up the quadrilateral top-left, top-right, bottom-right, bottom-left into a
     /// new frame of the given size, with bicubic sampling.
-    pub fn warp_quad(&self, quad: &[f64], width: usize, height: usize) -> Result<RgbaFrame, JsError> {
+    pub fn warp_quad(
+        &self,
+        quad: &[f64],
+        width: usize,
+        height: usize,
+    ) -> Result<RgbaFrame, JsError> {
         if quad.len() < 8 || width == 0 || height == 0 {
-            return Err(JsError::new("warp_quad needs eight coordinates and a non-empty size"));
+            return Err(JsError::new(
+                "warp_quad needs eight coordinates and a non-empty size",
+            ));
         }
         Ok(self.warp_quad_impl(quad, width, height))
     }
@@ -156,6 +157,26 @@ impl RgbaFrame {
     /// Returns the four radii used: top-left, top-right, bottom-right, bottom-left.
     pub fn round_card_corners(&mut self, standard: f64) -> Vec<f64> {
         self.round_card_corners_impl(standard)
+    }
+
+    /// Where the photo has print, as a map at most 900 pixels long; see document.rs.
+    pub fn print_map(&self, turn: f64) -> PrintMap {
+        PrintMap(self.detail_map_impl(turn))
+    }
+
+    /// Fit a document's four sides around the model's outline, a quadrilateral in pixels
+    /// (top-left, top-right, bottom-right, bottom-left), in a photo straightened by `turn`
+    /// degrees: eight corner coordinates, four side kinds, four scatters.
+    pub fn fit_document(
+        &self,
+        turn: f64,
+        prior: &[f64],
+        map: &PrintMap,
+    ) -> Result<Vec<f64>, JsError> {
+        let prior: [f64; 8] = prior
+            .try_into()
+            .map_err(|_| JsError::new("the outline needs eight coordinates"))?;
+        Ok(self.fit_document_impl(turn, prior, &map.0))
     }
 
     /// Tighten a SAM rectangle against full-resolution edges in its straightened frame.
@@ -178,6 +199,31 @@ impl RgbaFrame {
             angle_degrees,
         )
         .to_vec()
+    }
+}
+
+/// Where a photo has print: 0 plain, 1 print, 2 not part of the photo (straightening fill).
+#[wasm_bindgen]
+pub struct PrintMap(document::Detail);
+
+#[wasm_bindgen]
+impl PrintMap {
+    #[wasm_bindgen(getter)]
+    pub fn width(&self) -> usize {
+        self.0.w
+    }
+    #[wasm_bindgen(getter)]
+    pub fn height(&self) -> usize {
+        self.0.h
+    }
+    /// map pixels per photo pixel
+    #[wasm_bindgen(getter)]
+    pub fn scale(&self) -> f64 {
+        self.0.k
+    }
+    #[wasm_bindgen(getter)]
+    pub fn data(&self) -> Vec<u8> {
+        self.0.map.clone()
     }
 }
 
@@ -445,8 +491,14 @@ fn trim_mask_rgba(
             }
         }
         if let (Some(first), Some(last)) = (first, last) {
-            extremes.push(Point { x: first as f64, y: y as f64 });
-            extremes.push(Point { x: last as f64, y: y as f64 });
+            extremes.push(Point {
+                x: first as f64,
+                y: y as f64,
+            });
+            extremes.push(Point {
+                x: last as f64,
+                y: y as f64,
+            });
         }
     }
     let (Some(hull_x1), Some(hull_y1)) = (hull_x1, hull_y1) else {
@@ -1583,7 +1635,11 @@ mod tests {
             previous = current;
         }
         // and the edge is soft: some pixels are neither kept nor cleared
-        assert!(rgba.iter().step_by(4).any(|&value| value > 20 && value < 235));
+        assert!(
+            rgba.iter()
+                .step_by(4)
+                .any(|&value| value > 20 && value < 235)
+        );
     }
 
     #[test]

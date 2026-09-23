@@ -1,12 +1,12 @@
 /**
- * Phone photos of ID-1 cards: after detection, the card's four edges are measured at full
- * resolution and the card is squared up. The expected corners were checked by eye on
- * magnified overlays: on the card face, outside the glare and the shadow, on every side.
- * Private fixtures; see fixtures/README.md.
+ * Phone photos of ID-1 cards: detection measures the card's four edges at full resolution and
+ * the card is squared up. The expected corners were checked by eye on magnified overlays: on
+ * the card face, outside the glare and the shadow, on every side. Private fixtures; see
+ * fixtures/README.md.
  */
 import * as ortModule from "onnxruntime-web";
 import { expect, test } from "vitest";
-import { extractCard, fitCard } from "../src/lib/card";
+import { extractFit, fitFor } from "../src/lib/fit";
 import { detect } from "../src/lib/detect";
 import { estimateSkew } from "../src/lib/imaging-core";
 import { Sam } from "../src/lib/sam";
@@ -36,13 +36,14 @@ for (const [name, expected] of Object.entries(cards)) {
     const scan = await (await loadRaster(await response.blob(), name)).loadPage(0);
     const skew = await estimateSkew(scan.image);
     const straight = rotate(scan.image, skew);
-    const found = await detect(sam, straight, () => {});
-    const fit = await fitCard(straight, found.box, skew);
-    expect(fit, "the card's edges should be found").not.toBeNull();
+    const found = await detect(sam, straight, skew, () => {});
+    expect(found.kinds, "all four edges measured").toEqual(["edge", "edge", "edge", "edge"]);
+    const fit = fitFor(found, straight);
+    expect(fit?.card, "treated as an ID-1 card").toBe(true);
     const corners = fit!.quad.map((v, i) => v * (i % 2 === 0 ? straight.width : straight.height));
     corners.forEach((v, i) => expect(Math.abs(v - expected[i]!), `coordinate ${i}`).toBeLessThanOrEqual(3));
 
-    const { image, radii } = await extractCard(straight, fit!);
+    const { image, radii } = await extractFit(straight, fit!);
     expect(Math.abs(image.width / image.height - 85.6 / 54)).toBeLessThan(0.005);
     const mm = image.width / 85.6;
     for (const r of radii) {

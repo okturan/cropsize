@@ -32,12 +32,12 @@ const progress = new ProgressPanel();
 const liveSignature = (): string => JSON.stringify([
   S.scan?.name, S.page, S.skew, S.selectedObjectId,
   [S.box.x0, S.box.y0, S.box.x1, S.box.y1].map(v => v.toFixed(4)),
-  S.card?.quad.map(v => v.toFixed(5)) ?? null,
+  S.fit?.quad.map(v => v.toFixed(5)) ?? null,
   tone(), ui.trim.checked, currentFit(), ui.preset.value,
 ]);
 
-// A squared-up card is rounded already; the mask trim is for the plain box crop.
-const trimMask = () => (S.objects.length === 0 && !S.card && ui.trim.checked ? S.mask : null);
+// A squared-up document follows its own edges; the mask trim is for the plain box crop.
+const trimMask = () => (S.objects.length === 0 && !S.fit && ui.trim.checked ? S.mask : null);
 const output = createOutputController(S, layout, trimMask, liveSignature);
 const view = createScanView(S, () => workspace.cropEdited());
 

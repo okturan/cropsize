@@ -50,10 +50,14 @@ does not fix that latency.
   screen is unchanged, so detecting again or finding several items skips the encoder.
 - Phone photos of ID-1 cards print at 85.6 by 54 mm under Real size; Known size turns its
   preset to match an upright crop.
-- ID-1 cards are squared up on their own edges. The model's box only locates the card; each
-  side is then fitted at full resolution in the Rust core (`card.rs`), the four lines give
-  the corners, a perspective warp squares the card, and each corner is rounded to its
-  measured radius. A fit that does not agree with itself falls back to the box.
+- Documents are squared up on their own edges. The model's mask only locates the document;
+  each side is then measured at full resolution in the Rust core (`document.rs`), starting
+  from the model's outline and along its own tilt when the photo was taken at an angle. The
+  four lines give the corners, the proportions come from the perspective (Zhang and He's
+  method, with the lens from EXIF when the photo records it), and a perspective warp squares
+  the document. An ID-1 card with all four edges measured comes out at exact 85.6 by 54 mm
+  with each corner rounded to its measured radius (`card.rs`). A side with no clear edge keeps
+  the model's outline, or the photo's border where the document runs off it.
 
 ## Implementation map
 
@@ -69,11 +73,14 @@ does not fix that latency.
 | Tests | Native Rust tests, Vitest Browser Mode in headless Chrome, and a Playwright end-to-end run of the real UI. |
 
 The core owns skew, edge snapping, mask cleanup, convex hulls, trimming, rotated extraction,
-page layout arithmetic, tone work and the computer-vision primitives used by objects mode.
-TypeScript owns the DOM, canvas interaction, ONNX orchestration, PDF parsing and PDF writing.
-There is no TypeScript copy of the core maths.
+page layout arithmetic, tone work, the computer-vision primitives used by objects mode, and
+the document fitter: the print map, the full-resolution edge measurement and the square-up
+warp. TypeScript owns the DOM, canvas interaction, ONNX orchestration, PDF parsing and PDF
+writing, the detection decisions made around the model's masks (`detect.ts`), and the
+perspective arithmetic on the four fitted corners (`fit.ts`). There is no TypeScript copy of
+the core maths.
 
-The final optimized core measures 96,929 bytes raw, 40,879 bytes with gzip and 34,180 bytes
+The final optimized core measures 204,677 bytes raw, 83,592 bytes with gzip and 69,295 bytes
 with Brotli. The removed `@techstark/opencv-js@5.0.0-release.1` package is 4,031,133
 bytes as an npm tarball and 14,731,296 bytes unpacked.
 

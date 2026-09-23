@@ -59,7 +59,7 @@ for (const row of corpus.fixtures) {
         const scan = await source.loadPage(0);
         const skew = await estimateSkew(scan.image);
         const straight = rotate(scan.image, skew);
-        const detected = await detect(sam, straight, () => {});
+        const detected = await detect(sam, straight, skew, () => {});
 
         const actual = [detected.box.x0, detected.box.y0, detected.box.x1, detected.box.y1];
         for (let i = 0; i < 4; i++) {
